@@ -1,4 +1,5 @@
 const locationRepository = require("../repositories/locationRepository");
+const { redisClient } = require("../clients/redisClient");
 
 function createValidationError(message) {
     const error = new Error(message);
@@ -54,9 +55,34 @@ function validateLocation(data) {
 }
 
 async function updateLocation(data) {
+    // 1. Validate location data
     validateLocation(data);
 
-    return locationRepository.upsertLocation(data);
+    // 2. Update PostgreSQL
+    const location =
+        await locationRepository.upsertLocation(
+            data
+        );
+
+    // 3. Update Redis with latest driver location
+    const locationKey =
+        `driver:location:${data.driverId}`;
+
+    await redisClient.hSet(locationKey, {
+        latitude: String(data.latitude),
+        longitude: String(data.longitude),
+        updatedAt: new Date().toISOString(),
+    });
+
+    // 4. Location becomes stale if no new update
+    //    is received within 60 seconds.
+    await redisClient.expire(
+        locationKey,
+        60
+    );
+
+    // 5. Return the database result
+    return location;
 }
 
 async function getDriverLocation(driverId) {
@@ -84,17 +110,17 @@ async function getNearbyDrivers(
     radiusKm
 ) {
     if (
-    typeof latitude !== "number" ||
-    typeof longitude !== "number"
-) {
-    const error = new Error(
-        "latitude and longitude must be numbers"
-    );
+        typeof latitude !== "number" ||
+        typeof longitude !== "number"
+    ) {
+        const error = new Error(
+            "latitude and longitude must be numbers"
+        );
 
-    error.statusCode = 400;
+        error.statusCode = 400;
 
-    throw error;
-}
+        throw error;
+    }
 
     if (
         latitude < -90 ||

@@ -1,5 +1,9 @@
 const crypto = require("crypto");
 
+const {
+    redisClient,
+} = require("../clients/redisClient");
+
 const driverRepository = require("../repositories/driverRepository");
 
 const {
@@ -42,15 +46,22 @@ function validateCreateDriver(data) {
         throw new Error("vehicleType is required");
     }
 
-    if (!Object.values(VEHICLE_TYPE).includes(data.vehicleType)) {
+    if (
+        !Object.values(VEHICLE_TYPE).includes(
+            data.vehicleType
+        )
+    ) {
         throw new Error("Invalid vehicle type");
     }
 
     if (
         data.capacity !== undefined &&
-        (!Number.isInteger(data.capacity) || data.capacity <= 0)
+        (!Number.isInteger(data.capacity) ||
+            data.capacity <= 0)
     ) {
-        throw new Error("capacity must be a positive integer");
+        throw new Error(
+            "capacity must be a positive integer"
+        );
     }
 
     if (
@@ -84,11 +95,16 @@ async function createDriver(data) {
 }
 
 async function getDriver(driverId) {
-    const driver = await driverRepository.findById(driverId);
+    const driver =
+        await driverRepository.findById(driverId);
 
     if (!driver) {
-        const error = new Error("Driver not found");
+        const error = new Error(
+            "Driver not found"
+        );
+
         error.statusCode = 404;
+
         throw error;
     }
 
@@ -103,19 +119,39 @@ async function getAvailableDrivers() {
     return driverRepository.findAvailable();
 }
 
-async function updateDriverStatus(driverId, newStatus) {
-    if (!Object.values(DRIVER_STATUS).includes(newStatus)) {
-        const error = new Error("Invalid driver status");
+async function updateDriverStatus(
+    driverId,
+    newStatus
+) {
+    // 1. Validate new status
+    if (
+        !Object.values(DRIVER_STATUS).includes(
+            newStatus
+        )
+    ) {
+        const error = new Error(
+            "Invalid driver status"
+        );
+
         error.statusCode = 400;
+
         throw error;
     }
 
+    // 2. Get existing driver
     const driver = await getDriver(driverId);
 
+    // 3. Validate status transition
     const allowedTransitions =
-        VALID_STATUS_TRANSITIONS[driver.status] || [];
+        VALID_STATUS_TRANSITIONS[
+            driver.status
+        ] || [];
 
-    if (!allowedTransitions.includes(newStatus)) {
+    if (
+        !allowedTransitions.includes(
+            newStatus
+        )
+    ) {
         const error = new Error(
             `Invalid status transition: ${driver.status} → ${newStatus}`
         );
@@ -125,16 +161,47 @@ async function updateDriverStatus(driverId, newStatus) {
         throw error;
     }
 
-    return driverRepository.updateStatus(
-        driverId,
-        newStatus
-    );
+    // 4. Update PostgreSQL first
+    const updatedDriver =
+        await driverRepository.updateStatus(
+            driverId,
+            newStatus
+        );
+
+    // 5. Update Redis driver hash
+    const driverKey = `driver:${driverId}`;
+
+    await redisClient.hSet(driverKey, {
+        driverId: driverId,
+        status: newStatus,
+        updatedAt: new Date().toISOString(),
+    });
+
+    // 6. Maintain available-driver set
+    if (
+        newStatus === DRIVER_STATUS.AVAILABLE
+    ) {
+        await redisClient.sAdd(
+            "drivers:available",
+            driverId
+        );
+    } else {
+        await redisClient.sRem(
+            "drivers:available",
+            driverId
+        );
+    }
+
+    // 7. Return updated PostgreSQL record
+    return updatedDriver;
 }
 
 async function updateHeartbeat(driverId) {
     await getDriver(driverId);
 
-    return driverRepository.updateHeartbeat(driverId);
+    return driverRepository.updateHeartbeat(
+        driverId
+    );
 }
 
 module.exports = {

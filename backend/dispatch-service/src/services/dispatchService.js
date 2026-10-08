@@ -1,7 +1,9 @@
-const driverClient = require("../clients/driverClient");
 const locationClient = require("../clients/locationClient");
 const orderClient = require("../clients/orderClient");
+const driverClient = require("../clients/driverClient");
+
 const { calculateDistanceKm } = require("../utils/distance");
+const { redisClient } = require("../clients/redisClient");
 
 async function dispatchOrder(orderId) {
     console.log(`Dispatching order: ${orderId}`);
@@ -81,11 +83,11 @@ async function dispatchOrder(orderId) {
         );
     }
 
-    // 4. Get available drivers
-    const drivers =
-        await driverClient.getAvailableDrivers();
+    // 4. Get available drivers from Redis
+    const driverIds =
+        await redisClient.sMembers("drivers:available");
 
-    if (!drivers || drivers.length === 0) {
+    if (!driverIds || driverIds.length === 0) {
         const error = new Error(
             "No available drivers"
         );
@@ -95,47 +97,57 @@ async function dispatchOrder(orderId) {
     }
 
     console.log(
-        `Found ${drivers.length} available drivers`
+        `Found ${driverIds.length} available drivers in Redis`
     );
 
-    // 5. Find closest driver
+    // 5. Find closest driver using cached locations
     let bestDriver = null;
     let shortestDistance = Infinity;
 
-    for (const driver of drivers) {
+    for (const driverId of driverIds) {
         try {
             const location =
-                await locationClient.getDriverLocation(
-                    driver.driver_id
+                await redisClient.hGetAll(
+                    `driver:location:${driverId}`
                 );
 
-            if (!location) {
+            if (
+                !location ||
+                !location.latitude ||
+                !location.longitude
+            ) {
+                console.warn(
+                    `No cached location for driver ${driverId}`
+                );
+
                 continue;
             }
 
             const distance = calculateDistanceKm(
-                location.latitude,
-                location.longitude,
-                order.pickup_latitude,
-                order.pickup_longitude
+                Number(location.latitude),
+                Number(location.longitude),
+                Number(order.pickup_latitude),
+                Number(order.pickup_longitude)
             );
 
             console.log(
-                `Driver ${driver.driver_id}: ${distance.toFixed(3)} km`
+                `Driver ${driverId}: ${distance.toFixed(3)} km`
             );
 
             if (distance < shortestDistance) {
                 shortestDistance = distance;
 
                 bestDriver = {
-                    driver,
+                    driver: {
+                        driver_id: driverId,
+                    },
                     location,
                     distance,
                 };
             }
         } catch (error) {
             console.error(
-                `Failed to get location for driver ${driver.driver_id}:`,
+                `Failed to get cached location for driver ${driverId}:`,
                 error.message
             );
 
@@ -160,6 +172,8 @@ async function dispatchOrder(orderId) {
     );
 
     // 7. Mark driver as BUSY
+    // Driver Service remains responsible for the actual
+    // status transition and persistence.
     await driverClient.updateDriverStatus(
         bestDriver.driver.driver_id,
         "BUSY"
