@@ -1,6 +1,5 @@
 const orderClient = require("../clients/orderClient");
 const driverClient = require("../clients/driverClient");
-const locationClient = require("../clients/locationClient");
 
 const {
     calculateDistanceKm,
@@ -10,155 +9,52 @@ const {
     redisClient,
 } = require("../clients/redisClient");
 
-const LOCATION_CACHE_TTL_SECONDS = 60;
-const MAX_LOCATION_AGE_MS =
-    LOCATION_CACHE_TTL_SECONDS * 1000;
-
-function parseCoordinates(location) {
-    if (
-        !location ||
-        location.latitude === undefined ||
-        location.latitude === null ||
-        location.longitude === undefined ||
-        location.longitude === null ||
-        location.latitude === "" ||
-        location.longitude === ""
-    ) {
-        return null;
-    }
-
-    const latitude = Number(location.latitude);
-    const longitude = Number(location.longitude);
-
-    if (
-        !Number.isFinite(latitude) ||
-        !Number.isFinite(longitude) ||
-        latitude < -90 ||
-        latitude > 90 ||
-        longitude < -180 ||
-        longitude > 180
-    ) {
-        return null;
-    }
-
-    return {
-        latitude,
-        longitude,
-    };
-}
-
-async function getDriverCoordinates(driverId) {
-    const locationKey =
-        `driver:location:${driverId}`;
-    const cachedLocation =
-        await redisClient.hGetAll(locationKey);
-    const cachedCoordinates =
-        parseCoordinates(cachedLocation);
-
-    if (cachedCoordinates) {
-        return cachedCoordinates;
-    }
-
-    let persistedLocation;
-
-    try {
-        persistedLocation =
-            await locationClient.getDriverLocation(
-                driverId
-            );
-    } catch (error) {
-        if (error.response?.status === 404) {
-            return null;
-        }
-
-        throw error;
-    }
-
-    const coordinates =
-        parseCoordinates(persistedLocation);
-
-    const updatedAt = new Date(
-        persistedLocation?.updated_at ??
-        persistedLocation?.updatedAt
-    ).getTime();
-
-    if (
-        !coordinates ||
-        !Number.isFinite(updatedAt) ||
-        Date.now() - updatedAt > MAX_LOCATION_AGE_MS
-    ) {
-        return null;
-    }
-
-    await redisClient.hSet(locationKey, {
-        latitude: String(coordinates.latitude),
-        longitude: String(coordinates.longitude),
-    });
-
-    await redisClient.expire(
-        locationKey,
-        LOCATION_CACHE_TTL_SECONDS
-    );
-
-    return coordinates;
-}
 
 async function dispatchOrder(orderId) {
-    console.log(
-        `Dispatching order: ${orderId}`
-    );
+    console.log(`Dispatching order ${orderId}...`);
 
+    // --------------------------------------------------
     // 1. Get order
+    // --------------------------------------------------
+
     let order;
 
     try {
         order = await orderClient.getOrder(orderId);
     } catch (error) {
-        // The Kafka event may refer to an order that no longer exists.
-        // Do not retry such stale events forever.
+        // A stale Kafka event for an already deleted/non-existent
+        // order is not something we should retry forever.
         if (error.response?.status === 404) {
             console.warn(
-                `⚠️ Order ${orderId} no longer exists. Skipping stale event.`
+                `Order ${orderId} no longer exists. Skipping stale event.`
             );
 
             return {
-                order_id: orderId,
-                status: "NOT_FOUND",
-                skipped: true,
+                status: "SKIPPED",
+                reason: "ORDER_NOT_FOUND",
+                orderId,
             };
         }
 
         throw error;
     }
 
-    if (!order) {
-        console.warn(
-            `⚠️ Order ${orderId} was not found. Skipping event.`
-        );
-
-        return {
-            order_id: orderId,
-            status: "NOT_FOUND",
-            skipped: true,
-        };
-    }
-
     console.log(
         `Order ${orderId} current status: ${order.status}`
     );
 
-    // 2. Validate order status
-    // Idempotency: if this event is delivered again after
-    // the order has already been assigned, do nothing.
+    // --------------------------------------------------
+    // 2. Idempotency
+    // --------------------------------------------------
+
     if (order.status === "ASSIGNED") {
         console.log(
-            `⏭️ Order ${orderId} already assigned. Skipping duplicate event.`
+            `Order ${orderId} already assigned. Skipping duplicate event.`
         );
 
         return {
-            order_id: orderId,
-            status: "ASSIGNED",
-            alreadyProcessed: true,
+            status: "ALREADY_ASSIGNED",
+            orderId,
         };
     }
 
@@ -166,177 +62,312 @@ async function dispatchOrder(orderId) {
         order.status !== "CREATED" &&
         order.status !== "SEARCHING_DRIVER"
     ) {
-        throw new Error(
-            `Order cannot be dispatched from status ${order.status}`
+        console.log(
+            `Order ${orderId} is in status ${order.status}. Skipping dispatch.`
         );
+
+        return {
+            status: "SKIPPED",
+            reason: "INVALID_DISPATCH_STATUS",
+            orderId,
+        };
     }
 
-    // 3. Get pickup zone from order
-    const zoneId = order.pickup_zone_id;
+    // --------------------------------------------------
+    // 3. Get pickup zone
+    // --------------------------------------------------
 
-    if (!zoneId) {
+    const pickupZoneId = order.pickup_zone_id;
+
+    if (!pickupZoneId) {
         const error = new Error(
             `Order ${orderId} does not have a pickup zone`
         );
 
-        error.statusCode = 400;
+        error.statusCode = 500;
 
         throw error;
     }
 
     console.log(
-        `Order ${orderId} pickup zone: ${zoneId}`
+        `Order ${orderId} pickup zone: ${pickupZoneId}`
     );
 
-    // 4. Change order status to SEARCHING_DRIVER
+    // --------------------------------------------------
+    // 4. Move CREATED → SEARCHING_DRIVER
+    // --------------------------------------------------
+
     if (order.status === "CREATED") {
+        console.log(
+            `Order ${orderId} → SEARCHING_DRIVER`
+        );
+
         await orderClient.updateOrderStatus(
             orderId,
             "SEARCHING_DRIVER"
         );
 
-        console.log(
-            `Order ${orderId} → SEARCHING_DRIVER`
-        );
+        order.status = "SEARCHING_DRIVER";
     }
 
-    // 5. Get available drivers from the order's zone
-    const availableDriversKey =
-        `drivers:available:${zoneId}`;
-    const driverIds =
+    // --------------------------------------------------
+    // 5. Get available drivers from this zone
+    // --------------------------------------------------
+
+    const availableDriverIds =
         await redisClient.sMembers(
-            availableDriversKey
+            `drivers:available:${pickupZoneId}`
         );
-
-    if (!driverIds || driverIds.length === 0) {
-        const error = new Error(
-            `No available drivers in zone ${zoneId}`
-        );
-
-        error.statusCode = 409;
-
-        throw error;
-    }
 
     console.log(
-        `Found ${driverIds.length} available drivers in zone ${zoneId}`
+        `Found ${availableDriverIds.length} available drivers in zone ${pickupZoneId}`
     );
 
-    // 6. Find and rank drivers using fresh cached or persisted locations.
-    const candidateDrivers = [];
+    // --------------------------------------------------
+    // 6. No driver in zone
+    //
+    // IMPORTANT:
+    // This is NOT an error.
+    // Do not throw 409.
+    // Do not make Kafka retry the same event.
+    // --------------------------------------------------
 
-    for (const driverId of driverIds) {
-        const coordinates =
-            await getDriverCoordinates(driverId);
+    if (availableDriverIds.length === 0) {
+        console.warn(
+            `No available drivers in zone ${pickupZoneId} for order ${orderId}`
+        );
 
-        if (!coordinates) {
+        return {
+            status: "WAITING_FOR_DRIVER",
+            reason: "NO_DRIVER_IN_ZONE",
+            orderId,
+            zoneId: pickupZoneId,
+        };
+    }
+
+    // --------------------------------------------------
+    // 7. Find nearest valid driver
+    // --------------------------------------------------
+
+    let nearestDriver = null;
+    let nearestDistance = Infinity;
+
+    for (const driverId of availableDriverIds) {
+        // ----------------------------------------------
+        // Verify current driver state
+        // ----------------------------------------------
+
+        const driverKey =
+            `driver:${driverId}`;
+
+        const driverState =
+            await redisClient.hGetAll(driverKey);
+
+        if (
+            !driverState ||
+            driverState.status !== "AVAILABLE"
+        ) {
             console.warn(
-                `No fresh location for driver ${driverId}; removing stale availability entry`
-            );
-
-            await redisClient.sRem(
-                availableDriversKey,
-                driverId
+                `Skipping driver ${driverId}: Redis status is ${driverState.status || "UNKNOWN"}`
             );
 
             continue;
         }
 
-        const distance = calculateDistanceKm(
-            coordinates.latitude,
-            coordinates.longitude,
-            order.pickup_latitude,
-            order.pickup_longitude
-        );
+        // ----------------------------------------------
+        // Get latest cached location
+        // ----------------------------------------------
+
+        const locationKey =
+            `driver:location:${driverId}`;
+
+        const location =
+            await redisClient.hGetAll(locationKey);
+
+        if (
+            !location ||
+            !location.latitude ||
+            !location.longitude
+        ) {
+            console.warn(
+                `No cached location for driver ${driverId}`
+            );
+
+            continue;
+        }
+
+        // ----------------------------------------------
+        // Verify location belongs to the order zone
+        // ----------------------------------------------
+
+        if (
+            location.zoneId &&
+            location.zoneId !== pickupZoneId
+        ) {
+            console.warn(
+                `Skipping driver ${driverId}: location zone ${location.zoneId} does not match order zone ${pickupZoneId}`
+            );
+
+            continue;
+        }
+
+        // ----------------------------------------------
+        // Validate coordinates
+        // ----------------------------------------------
+
+        const driverLatitude =
+            Number(location.latitude);
+
+        const driverLongitude =
+            Number(location.longitude);
+
+        const pickupLatitude =
+            Number(order.pickup_latitude);
+
+        const pickupLongitude =
+            Number(order.pickup_longitude);
+
+        if (
+            !Number.isFinite(driverLatitude) ||
+            !Number.isFinite(driverLongitude) ||
+            !Number.isFinite(pickupLatitude) ||
+            !Number.isFinite(pickupLongitude)
+        ) {
+            console.warn(
+                `Skipping driver ${driverId}: invalid coordinates`
+            );
+
+            continue;
+        }
+
+        // ----------------------------------------------
+        // Calculate distance
+        // ----------------------------------------------
+
+        const distance =
+            calculateDistanceKm(
+                pickupLatitude,
+                pickupLongitude,
+                driverLatitude,
+                driverLongitude
+            );
 
         console.log(
-            `Driver ${driverId}: ${distance.toFixed(3)} km`
+            `Driver ${driverId} distance: ${distance.toFixed(3)} km`
         );
 
-        candidateDrivers.push({
-            driverId,
-            distance,
-        });
-    }
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
 
-    candidateDrivers.sort(
-        (first, second) =>
-            first.distance - second.distance
-    );
-
-    if (candidateDrivers.length === 0) {
-        const error = new Error(
-            `No drivers with fresh locations in zone ${zoneId}`
-        );
-
-        error.statusCode = 409;
-        throw error;
-    }
-
-    // 7. Reserve the closest driver that is still available.
-    let bestDriver = null;
-
-    for (const candidate of candidateDrivers) {
-        try {
-            await driverClient.updateDriverStatus(
-                candidate.driverId,
-                "BUSY"
-            );
-
-            bestDriver = candidate;
-            break;
-        } catch (error) {
-            if (error.response?.status !== 409) {
-                throw error;
-            }
-
-            console.warn(
-                `Driver ${candidate.driverId} is no longer available; trying the next candidate`
-            );
-
-            await redisClient.sRem(
-                availableDriversKey,
-                candidate.driverId
-            );
+            nearestDriver = {
+                driverId,
+                distance,
+            };
         }
     }
 
-    if (!bestDriver) {
-        const error = new Error(
-            `No available drivers in zone ${zoneId}`
+    // --------------------------------------------------
+    // 8. No driver with valid location
+    //
+    // Again: business condition, NOT Kafka failure.
+    // --------------------------------------------------
+
+    if (!nearestDriver) {
+        console.warn(
+            `No drivers with valid cached locations in zone ${pickupZoneId} for order ${orderId}`
         );
 
-        error.statusCode = 409;
-        throw error;
+        return {
+            status: "WAITING_FOR_DRIVER",
+            reason: "NO_VALID_DRIVER_LOCATION",
+            orderId,
+            zoneId: pickupZoneId,
+        };
     }
 
     console.log(
-        `Assigned driver ${bestDriver.driverId} ` +
-        `(${bestDriver.distance.toFixed(3)} km)`
+        `Selected driver ${nearestDriver.driverId} for order ${orderId} (${nearestDriver.distance.toFixed(3)} km)`
     );
 
-    // 8. Mark order as ASSIGNED
-    const updatedOrder =
+    // --------------------------------------------------
+    // 9. Reserve driver
+    // --------------------------------------------------
+
+    try {
+        console.log(
+            `Driver ${nearestDriver.driverId} → BUSY`
+        );
+
+        await driverClient.updateDriverStatus(
+            nearestDriver.driverId,
+            "BUSY"
+        );
+
+        // --------------------------------------------------
+        // 10. Assign order
+        // --------------------------------------------------
+
+        console.log(
+            `Order ${orderId} → ASSIGNED`
+        );
+
         await orderClient.updateOrderStatus(
             orderId,
             "ASSIGNED"
         );
 
-    console.log(
-        `Order ${orderId} → ASSIGNED`
-    );
+        console.log(
+            `✅ Order ${orderId} assigned to driver ${nearestDriver.driverId}`
+        );
 
-    // 9. Return dispatch result
-    return {
-        order: updatedOrder,
-        driver: {
-            driver_id: bestDriver.driverId,
-        },
-        distanceKm: Number(
-            bestDriver.distance.toFixed(3)
-        ),
-    };
+        return {
+            status: "ASSIGNED",
+            orderId,
+            driverId: nearestDriver.driverId,
+            distanceKm: nearestDriver.distance,
+        };
+    } catch (error) {
+        // --------------------------------------------------
+        // 11. Compensation
+        //
+        // If driver became BUSY but order assignment failed,
+        // release the driver back to AVAILABLE.
+        // --------------------------------------------------
+
+        console.error(
+            `Assignment failed for order ${orderId}:`,
+            error.message
+        );
+
+        try {
+            const latestOrder =
+                await orderClient.getOrder(orderId);
+
+            if (latestOrder.status !== "ASSIGNED") {
+                console.warn(
+                    `Releasing driver ${nearestDriver.driverId} back to AVAILABLE`
+                );
+
+                await driverClient.updateDriverStatus(
+                    nearestDriver.driverId,
+                    "AVAILABLE"
+                );
+            } else {
+                console.log(
+                    `Order ${orderId} is already ASSIGNED. Keeping driver BUSY.`
+                );
+            }
+        } catch (compensationError) {
+            console.error(
+                `Failed to compensate driver ${nearestDriver.driverId}:`,
+                compensationError.message
+            );
+        }
+
+        throw error;
+    }
 }
+
 
 module.exports = {
     dispatchOrder,

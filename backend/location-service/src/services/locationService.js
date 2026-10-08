@@ -59,17 +59,20 @@ async function updateLocation(data) {
     // 1. Validate location data
     validateLocation(data);
 
-    // 2. Update PostgreSQL
-    const location =
-        await locationRepository.upsertLocation(
-            data
-        );
-
-    // 3. Calculate zone from the latest coordinates
+    // 2. Calculate the zone from coordinates before persisting them.
     const zoneId = getZoneId(
         data.latitude,
         data.longitude
     );
+
+    // 3. Persist the calculated zone instead of any caller-supplied label.
+    const location =
+        await locationRepository.upsertLocation(
+            {
+                ...data,
+                zoneId,
+            }
+        );
 
     const driverKey =
         `driver:${data.driverId}`;

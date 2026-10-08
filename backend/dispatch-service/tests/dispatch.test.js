@@ -8,6 +8,7 @@ jest.mock("../src/clients/redisClient", () => ({
         expire: jest.fn(),
         hGetAll: jest.fn(),
         hSet: jest.fn(),
+        sAdd: jest.fn(),
         sMembers: jest.fn(),
         sRem: jest.fn(),
     },
@@ -35,7 +36,10 @@ describe("Dispatch Service", () => {
         redisClient.expire.mockResolvedValue(1);
         redisClient.sMembers.mockResolvedValue([]);
         redisClient.sRem.mockResolvedValue(1);
+        redisClient.sAdd.mockResolvedValue(1);
 
+        driverClient.getAvailableDrivers
+            .mockResolvedValue([]);
         driverClient.updateDriverStatus
             .mockResolvedValue({
                 status: "BUSY",
@@ -64,21 +68,27 @@ describe("Dispatch Service", () => {
     test("should assign the closest available driver using persisted locations when Redis is empty", async () => {
         orderClient.getOrder.mockResolvedValue({
             order_id: "order-1",
-            pickup_zone_id: "zone-1",
+            pickup_zone_id: "ZONE_2059_5151",
             pickup_latitude: 12.9716,
             pickup_longitude: 77.5946,
             status: "CREATED",
         });
 
-        redisClient.sMembers.mockResolvedValue([
-            "driver-1",
-            "driver-2",
+        driverClient.getAvailableDrivers.mockResolvedValue([
+            {
+                driver_id: "driver-1",
+                status: "AVAILABLE",
+            },
+            {
+                driver_id: "driver-2",
+                status: "AVAILABLE",
+            },
         ]);
 
         locationClient.getDriverLocation
             .mockImplementation(async (driverId) => {
                 if (driverId === "driver-1") {
-                    return freshLocation(13.05, 77.7);
+                    return freshLocation(12.99, 77.59);
                 }
 
                 return freshLocation(12.972, 77.595);
@@ -103,6 +113,10 @@ describe("Dispatch Service", () => {
         );
         expect(driverClient.updateDriverStatus)
             .toHaveBeenCalledWith("driver-2", "BUSY");
+        expect(redisClient.sAdd).toHaveBeenCalledWith(
+            "drivers:available:ZONE_2059_5151",
+            "driver-2"
+        );
         expect(orderClient.updateOrderStatus)
             .toHaveBeenNthCalledWith(
                 1,
@@ -123,13 +137,18 @@ describe("Dispatch Service", () => {
     test("should use cached locations when they are available", async () => {
         orderClient.getOrder.mockResolvedValue({
             order_id: "order-cached",
-            pickup_zone_id: "zone-1",
+            pickup_zone_id: "ZONE_2040_5140",
             pickup_latitude: 12,
             pickup_longitude: 77,
             status: "SEARCHING_DRIVER",
         });
 
-        redisClient.sMembers.mockResolvedValue(["driver-1"]);
+        driverClient.getAvailableDrivers.mockResolvedValue([
+            {
+                driver_id: "driver-1",
+                status: "AVAILABLE",
+            },
+        ]);
         redisClient.hGetAll.mockResolvedValue({
             latitude: "12",
             longitude: "77",
@@ -162,39 +181,29 @@ describe("Dispatch Service", () => {
             .toBe("No available drivers in zone zone-2");
     });
 
-    test("should remove drivers with missing or stale locations from the zone index", async () => {
+    test("should remove drivers with no persisted location from the zone index", async () => {
         orderClient.getOrder.mockResolvedValue({
             order_id: "order-3",
-            pickup_zone_id: "zone-3",
+            pickup_zone_id: "ZONE_2059_5151",
             pickup_latitude: 12.9716,
             pickup_longitude: 77.5946,
             status: "SEARCHING_DRIVER",
         });
 
-        redisClient.sMembers.mockResolvedValue([
-            "driver-missing-location",
-            "driver-stale-location",
+        driverClient.getAvailableDrivers.mockResolvedValue([
+            {
+                driver_id: "driver-missing-location",
+                status: "AVAILABLE",
+            },
+            {
+                driver_id: "driver-stale-location",
+                status: "AVAILABLE",
+            },
         ]);
-        locationClient.getDriverLocation
-            .mockImplementation(async (driverId) => {
-                if (driverId === "driver-missing-location") {
-                    const error = new Error(
-                        "Location not found"
-                    );
-
-                    error.response = {
-                        status: 404,
-                    };
-
-                    throw error;
-                }
-
-                return {
-                    ...freshLocation(12, 77),
-                    updated_at: new Date(
-                        Date.now() - 61_000
-                    ).toISOString(),
-                };
+        locationClient.getDriverLocation.mockRejectedValue({
+            response: {
+                status: 404,
+            },
             });
 
         const response = await request(app)
@@ -203,32 +212,79 @@ describe("Dispatch Service", () => {
         expect(response.statusCode).toBe(409);
         expect(response.body.message)
             .toBe(
-                "No drivers with fresh locations in zone zone-3"
+                "No drivers with fresh locations in zone ZONE_2059_5151"
             );
         expect(redisClient.sRem).toHaveBeenCalledWith(
-            "drivers:available:zone-3",
+            "drivers:available:ZONE_2059_5151",
             "driver-missing-location"
-        );
-        expect(redisClient.sRem).toHaveBeenCalledWith(
-            "drivers:available:zone-3",
-            "driver-stale-location"
         );
         expect(driverClient.updateDriverStatus)
             .not.toHaveBeenCalled();
     });
 
+    test("should dispatch using a persisted location when the Redis cache has expired", async () => {
+        orderClient.getOrder.mockResolvedValue({
+            order_id: "order-persisted-location",
+            pickup_zone_id: "ZONE_2059_5151",
+            pickup_latitude: 12.9716,
+            pickup_longitude: 77.5946,
+            status: "SEARCHING_DRIVER",
+        });
+
+        driverClient.getAvailableDrivers.mockResolvedValue([
+            {
+                driver_id: "driver-with-persisted-location",
+                status: "AVAILABLE",
+            },
+        ]);
+        locationClient.getDriverLocation.mockResolvedValue({
+            latitude: 12.972,
+            longitude: 77.595,
+            updated_at: new Date(
+                Date.now() - 5 * 60 * 1000
+            ).toISOString(),
+        });
+
+        const response = await request(app)
+            .post(
+                "/dispatch/orders/order-persisted-location/dispatch"
+            );
+
+        expect(response.statusCode).toBe(200);
+        expect(redisClient.hSet).toHaveBeenCalledWith(
+            "driver:location:driver-with-persisted-location",
+            {
+                latitude: "12.972",
+                longitude: "77.595",
+            }
+        );
+        expect(driverClient.updateDriverStatus)
+            .toHaveBeenCalledWith(
+                "driver-with-persisted-location",
+                "BUSY"
+            );
+        expect(response.body.data.driver.driver_id)
+            .toBe("driver-with-persisted-location");
+    });
+
     test("should try the next driver if the closest driver was claimed concurrently", async () => {
         orderClient.getOrder.mockResolvedValue({
             order_id: "order-4",
-            pickup_zone_id: "zone-4",
+            pickup_zone_id: "ZONE_2040_5140",
             pickup_latitude: 12,
             pickup_longitude: 77,
             status: "SEARCHING_DRIVER",
         });
 
-        redisClient.sMembers.mockResolvedValue([
-            "driver-closest",
-            "driver-next",
+        driverClient.getAvailableDrivers.mockResolvedValue([
+            {
+                driver_id: "driver-closest",
+                status: "AVAILABLE",
+            },
+            {
+                driver_id: "driver-next",
+                status: "AVAILABLE",
+            },
         ]);
         locationClient.getDriverLocation
             .mockImplementation(async (driverId) => {
@@ -275,11 +331,68 @@ describe("Dispatch Service", () => {
                 "BUSY"
             );
         expect(redisClient.sRem).toHaveBeenCalledWith(
-            "drivers:available:zone-4",
+            "drivers:available:ZONE_2040_5140",
             "driver-closest"
         );
         expect(response.body.data.driver.driver_id)
             .toBe("driver-next");
+    });
+
+    test("should find drivers in the pickup zone when the Redis zone set is empty", async () => {
+        orderClient.getOrder.mockResolvedValue({
+            order_id: "order-redis-empty",
+            pickup_zone_id: "ZONE_2059_5151",
+            pickup_latitude: 12.9716,
+            pickup_longitude: 77.5946,
+            status: "SEARCHING_DRIVER",
+        });
+
+        driverClient.getAvailableDrivers.mockResolvedValue([
+            {
+                driver_id: "driver-in-zone",
+                status: "AVAILABLE",
+            },
+            {
+                driver_id: "driver-other-zone",
+                status: "AVAILABLE",
+            },
+        ]);
+        locationClient.getDriverLocation
+            .mockImplementation(async (driverId) => {
+                if (driverId === "driver-in-zone") {
+                    return freshLocation(12.972, 77.595);
+                }
+
+                return freshLocation(13.1, 77.7);
+            });
+
+        const response = await request(app)
+            .post(
+                "/dispatch/orders/order-redis-empty/dispatch"
+            );
+
+        expect(response.statusCode).toBe(200);
+        expect(driverClient.updateDriverStatus)
+            .toHaveBeenCalledTimes(1);
+        expect(driverClient.updateDriverStatus)
+            .toHaveBeenCalledWith(
+                "driver-in-zone",
+                "BUSY"
+            );
+        expect(redisClient.sAdd).toHaveBeenCalledWith(
+            "drivers:available:ZONE_2059_5151",
+            "driver-in-zone"
+        );
+        expect(redisClient.sRem).toHaveBeenCalledWith(
+            "drivers:available:ZONE_2059_5151",
+            "driver-in-zone"
+        );
+        expect(redisClient.sRem).toHaveBeenCalledWith(
+            "drivers:available:ZONE_2059_5151",
+            "driver-other-zone"
+        );
+        expect(response.body.data.driver.driver_id)
+            .toBe("driver-in-zone");
     });
 
     test("should not dispatch an already assigned order again", async () => {
@@ -294,7 +407,7 @@ describe("Dispatch Service", () => {
         expect(response.statusCode).toBe(200);
         expect(response.body.data.alreadyProcessed)
             .toBe(true);
-        expect(redisClient.sMembers)
+        expect(driverClient.getAvailableDrivers)
             .not.toHaveBeenCalled();
         expect(driverClient.updateDriverStatus)
             .not.toHaveBeenCalled();
