@@ -7,6 +7,10 @@ const {
     ORDER_PRIORITY,
 } = require("../models/orderModel");
 
+const {
+    publishOrderCreated,
+} = require("../events/orderProducer");
+
 const VALID_STATUS_TRANSITIONS = {
     [ORDER_STATUS.CREATED]: [
         ORDER_STATUS.SEARCHING_DRIVER,
@@ -90,8 +94,10 @@ function validateCreateOrder(data) {
 }
 
 async function createOrder(data) {
+    // 1. Validate request
     validateCreateOrder(data);
 
+    // 2. Build order object
     const order = {
         orderId: crypto.randomUUID(),
         customerId: data.customerId,
@@ -106,7 +112,14 @@ async function createOrder(data) {
         status: ORDER_STATUS.CREATED,
     };
 
-    return orderRepository.createOrder(order);
+    // 3. Create order in PostgreSQL
+    const createdOrder = await orderRepository.createOrder(order);
+
+    // 4. Publish OrderCreated event to Kafka
+    await publishOrderCreated(createdOrder);
+
+    // 5. Return created order
+    return createdOrder;
 }
 
 async function getOrder(orderId) {

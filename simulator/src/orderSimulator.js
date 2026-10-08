@@ -2,7 +2,6 @@ const config = require("./config");
 
 const {
     createOrder,
-    dispatchOrder,
 } = require("./api/orderApi");
 
 async function processOrder(drivers) {
@@ -36,36 +35,6 @@ async function processOrder(drivers) {
         console.log(
             `📦 New order: ${order.order_id}`
         );
-
-        try {
-            const result =
-                await dispatchOrder(order.order_id);
-
-            const assignedDriverId =
-                result.driver.driver_id;
-
-            const assignedDriver =
-                drivers.find(
-                    (driver) =>
-                        driver.driverId ===
-                        assignedDriverId
-                );
-
-            if (assignedDriver) {
-                assignedDriver.status = "BUSY";
-            }
-
-            console.log(
-                `🚚 Order ${order.order_id} ` +
-                `assigned to driver ${assignedDriverId}`
-            );
-        } catch (error) {
-            console.error(
-                `⚠️ Dispatch failed for ${order.order_id}:`,
-                error.response?.data ||
-                    error.message
-            );
-        }
     } catch (error) {
         console.error(
             "❌ Order creation failed:",

@@ -70,9 +70,13 @@ async function createDriver(data) {
         name: data.name.trim(),
         phone: data.phone.trim(),
         vehicleType: data.vehicleType,
-        capacity: data.capacity || 1,
+        capacity: data.capacity ?? 1,
+
+        // New driver starts offline.
+        // It must explicitly transition to AVAILABLE.
         status: DRIVER_STATUS.OFFLINE,
-        zoneId: data.zoneId || null,
+
+        zoneId: data.zoneId ?? null,
         lastHeartbeat: null,
     };
 
@@ -109,7 +113,7 @@ async function updateDriverStatus(driverId, newStatus) {
     const driver = await getDriver(driverId);
 
     const allowedTransitions =
-        VALID_STATUS_TRANSITIONS[driver.status];
+        VALID_STATUS_TRANSITIONS[driver.status] || [];
 
     if (!allowedTransitions.includes(newStatus)) {
         const error = new Error(
