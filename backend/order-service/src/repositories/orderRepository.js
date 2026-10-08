@@ -7,12 +7,13 @@ async function createOrder(order) {
             customer_id,
             pickup_latitude,
             pickup_longitude,
+            pickup_zone_id,
             delivery_latitude,
             delivery_longitude,
             priority,
             status
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING *;
     `;
 
@@ -21,6 +22,7 @@ async function createOrder(order) {
         order.customerId,
         order.pickupLatitude,
         order.pickupLongitude,
+        order.pickupZoneId,
         order.deliveryLatitude,
         order.deliveryLongitude,
         order.priority,

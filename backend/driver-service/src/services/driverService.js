@@ -139,7 +139,8 @@ async function updateDriverStatus(
     }
 
     // 2. Get existing driver
-    const driver = await getDriver(driverId);
+    const driver =
+        await getDriver(driverId);
 
     // 3. Validate status transition
     const allowedTransitions =
@@ -168,18 +169,23 @@ async function updateDriverStatus(
             newStatus
         );
 
-    // 5. Update Redis driver hash
-    const driverKey = `driver:${driverId}`;
+    // 5. Update Redis driver state
+    const driverKey =
+        `driver:${driverId}`;
 
     await redisClient.hSet(driverKey, {
-        driverId: driverId,
+        driverId,
         status: newStatus,
-        updatedAt: new Date().toISOString(),
+        updatedAt:
+            new Date().toISOString(),
+        zoneId:
+            updatedDriver.zone_id || "",
     });
 
-    // 6. Maintain available-driver set
+    // 6. Maintain global available-driver set
     if (
-        newStatus === DRIVER_STATUS.AVAILABLE
+        newStatus ===
+        DRIVER_STATUS.AVAILABLE
     ) {
         await redisClient.sAdd(
             "drivers:available",
@@ -192,7 +198,32 @@ async function updateDriverStatus(
         );
     }
 
-    // 7. Return updated PostgreSQL record
+    // 7. Maintain zone-specific
+    // available-driver set
+    const zoneId =
+        updatedDriver.zone_id;
+
+    if (zoneId) {
+        const zoneKey =
+            `drivers:available:${zoneId}`;
+
+        if (
+            newStatus ===
+            DRIVER_STATUS.AVAILABLE
+        ) {
+            await redisClient.sAdd(
+                zoneKey,
+                driverId
+            );
+        } else {
+            await redisClient.sRem(
+                zoneKey,
+                driverId
+            );
+        }
+    }
+
+    // 8. Return updated driver
     return updatedDriver;
 }
 

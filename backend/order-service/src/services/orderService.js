@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-
+const { getZoneId } = require("../utils/zone");
 const orderRepository = require("../repositories/orderRepository");
 
 const {
@@ -97,13 +97,20 @@ async function createOrder(data) {
     // 1. Validate request
     validateCreateOrder(data);
 
-    // 2. Build order object
+    // 2. Calculate pickup zone
+    const pickupZoneId = getZoneId(
+        data.pickupLatitude,
+        data.pickupLongitude
+    );
+
+    // 3. Build order object
     const order = {
         orderId: crypto.randomUUID(),
         customerId: data.customerId,
 
         pickupLatitude: data.pickupLatitude,
         pickupLongitude: data.pickupLongitude,
+        pickupZoneId: pickupZoneId,
 
         deliveryLatitude: data.deliveryLatitude,
         deliveryLongitude: data.deliveryLongitude,
@@ -112,13 +119,13 @@ async function createOrder(data) {
         status: ORDER_STATUS.CREATED,
     };
 
-    // 3. Create order in PostgreSQL
+    // 4. Create order in PostgreSQL
     const createdOrder = await orderRepository.createOrder(order);
 
-    // 4. Publish OrderCreated event to Kafka
+    // 5. Publish OrderCreated event to Kafka
     await publishOrderCreated(createdOrder);
 
-    // 5. Return created order
+    // 6. Return created order
     return createdOrder;
 }
 

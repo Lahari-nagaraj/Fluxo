@@ -1,5 +1,6 @@
 const locationRepository = require("../repositories/locationRepository");
 const { redisClient } = require("../clients/redisClient");
+const { getZoneId } = require("../../utils/zone");
 
 function createValidationError(message) {
     const error = new Error(message);
@@ -64,24 +65,63 @@ async function updateLocation(data) {
             data
         );
 
-    // 3. Update Redis with latest driver location
+    // 3. Calculate zone from the latest coordinates
+    const zoneId = getZoneId(
+        data.latitude,
+        data.longitude
+    );
+
+    const driverKey =
+        `driver:${data.driverId}`;
+
+    const driverState =
+        await redisClient.hGetAll(driverKey);
+
+    const oldZoneId =
+        driverState.zoneId;
+
+    // 4. Update Redis with latest driver location
     const locationKey =
         `driver:location:${data.driverId}`;
 
     await redisClient.hSet(locationKey, {
         latitude: String(data.latitude),
         longitude: String(data.longitude),
+        zoneId,
         updatedAt: new Date().toISOString(),
     });
 
-    // 4. Location becomes stale if no new update
+    // 5. Location becomes stale if no new update
     //    is received within 60 seconds.
     await redisClient.expire(
         locationKey,
         60
     );
 
-    // 5. Return the database result
+    if (
+        driverState.status === "AVAILABLE" &&
+        oldZoneId &&
+        oldZoneId !== zoneId
+    ) {
+        await redisClient.sRem(
+            `drivers:available:${oldZoneId}`,
+            data.driverId
+        );
+    }
+
+    if (driverState.status === "AVAILABLE") {
+        await redisClient.sAdd(
+            `drivers:available:${zoneId}`,
+            data.driverId
+        );
+    }
+
+    await redisClient.hSet(driverKey, {
+        driverId: data.driverId,
+        zoneId,
+    });
+
+    // 6. Return the database result
     return location;
 }
 
