@@ -13,6 +13,12 @@ export const orderApi = {
   getAll: () => api.get("/orders"),
   getById: (orderId) => api.get(`/orders/${orderId}`),
   create: (order) => api.post("/orders", order),
+  getLocationInstructions: (locationId) =>
+    api.get(`/orders/locations/${locationId}/instructions`),
+  saveLocationInstructions: (locationId, data) =>
+    api.post(`/orders/locations/${locationId}/instructions`, data),
+  saveOrderInstructions: (orderId, data) =>
+    api.post(`/orders/${orderId}/instructions`, data),
 };
 
 export const driverApi = {

@@ -267,3 +267,30 @@ export function getNearestLocality(latitude, longitude) {
     distanceKm: minDistance,
   };
 }
+
+/**
+ * Derives a consistent, readable location_id from area name and optional street.
+ */
+export function toLocationId(areaName, street = "") {
+  if (!areaName) return "loc-bengaluru";
+  const cleanArea = areaName
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  if (!street || !street.trim()) {
+    return `loc-${cleanArea || "bengaluru"}`;
+  }
+
+  const cleanStreet = street
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 15)
+    .replace(/^-|-$/g, "");
+
+  return cleanStreet ? `loc-${cleanArea}-${cleanStreet}` : `loc-${cleanArea}`;
+}
+

@@ -45,16 +45,35 @@ function startDeliveryLifecycle(orderId, driverId) {
     // Launch progression asynchronously so dispatch endpoint returns immediately
     (async () => {
         try {
+            let orderDetails = null;
+            try {
+                orderDetails = await orderClient.getOrder(orderId);
+            } catch (err) {
+                // Non-critical order lookup
+            }
+
+            const locationId = orderDetails?.location_id || "";
+            const deliveryInstructions = orderDetails?.delivery_instructions || "";
+
             // Save initial assignment in Redis
             await redisClient.hSet(`assignment:${orderId}`, {
                 orderId,
                 driverId,
                 status: "ASSIGNED",
+                locationId,
+                deliveryInstructions,
                 assignedAt: new Date().toISOString(),
             });
             await redisClient.set(`order:driver:${orderId}`, driverId);
             await redisClient.set(`driver:order:${driverId}`, orderId);
             await redisClient.sAdd("orders:active_assignments", orderId);
+
+            if (deliveryInstructions) {
+                console.log(
+                    `🔔 [Location Reminder for Driver ${driverId}] Order ${orderId} (Location: ${locationId}):\n` +
+                    `   → Door Note: "${deliveryInstructions}"`
+                );
+            }
 
             // ==============================================================
             // STEP 1: PICKUP STATE (2 to 5 minutes)

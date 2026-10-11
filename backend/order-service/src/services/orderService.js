@@ -103,7 +103,26 @@ async function createOrder(data) {
         data.pickupLongitude
     );
 
-    // 3. Build order object
+    // 3. Determine location_id and check for saved door instructions
+    const locationId =
+        data.locationId ||
+        data.deliveryLocationId ||
+        `loc_${Math.round(data.deliveryLatitude * 1000)}_${Math.round(data.deliveryLongitude * 1000)}`;
+
+    let deliveryInstructions = data.deliveryInstructions || null;
+
+    if (!deliveryInstructions && locationId) {
+        try {
+            const savedLoc = await orderRepository.getLocationInstructions(locationId);
+            if (savedLoc && savedLoc.door_instructions) {
+                deliveryInstructions = savedLoc.door_instructions;
+            }
+        } catch (err) {
+            // Non-critical lookup
+        }
+    }
+
+    // 4. Build order object
     const order = {
         orderId: crypto.randomUUID(),
         customerId: data.customerId,
@@ -117,15 +136,35 @@ async function createOrder(data) {
 
         priority: data.priority || ORDER_PRIORITY.NORMAL,
         status: ORDER_STATUS.CREATED,
+
+        locationId,
+        deliveryInstructions,
     };
 
-    // 4. Create order in PostgreSQL
+    // If instructions were provided during creation, cache in location_instructions for future orders
+    if (deliveryInstructions && locationId) {
+        try {
+            await orderRepository.saveLocationInstructions({
+                locationId,
+                addressName: data.addressName || null,
+                streetAddress: data.streetAddress || null,
+                latitude: data.deliveryLatitude,
+                longitude: data.deliveryLongitude,
+                doorInstructions: deliveryInstructions,
+                lastDriverId: null,
+            });
+        } catch (saveErr) {
+            console.warn("[OrderService] Could not pre-cache location instructions:", saveErr.message);
+        }
+    }
+
+    // 5. Create order in PostgreSQL
     const createdOrder = await orderRepository.createOrder(order);
 
-    // 5. Publish OrderCreated event to Kafka
+    // 6. Publish OrderCreated event to Kafka
     await publishOrderCreated(createdOrder);
 
-    // 6. Return created order
+    // 7. Return created order
     return createdOrder;
 }
 
@@ -170,9 +209,73 @@ async function updateOrderStatus(orderId, newStatus) {
     return orderRepository.updateStatus(orderId, newStatus);
 }
 
+async function getLocationInstructions(locationId) {
+    if (!locationId) {
+        const error = new Error("locationId is required");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return orderRepository.getLocationInstructions(locationId);
+}
+
+async function saveLocationInstructions(locationId, data) {
+    if (!locationId) {
+        const error = new Error("locationId is required");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    if (!data.doorInstructions || !data.doorInstructions.trim()) {
+        const error = new Error("doorInstructions is required");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return orderRepository.saveLocationInstructions({
+        locationId,
+        addressName: data.addressName,
+        streetAddress: data.streetAddress,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        doorInstructions: data.doorInstructions.trim(),
+        lastDriverId: data.driverId || data.lastDriverId,
+    });
+}
+
+async function saveOrderInstructions(orderId, data) {
+    const order = await getOrder(orderId);
+
+    if (!data.doorInstructions || !data.doorInstructions.trim()) {
+        const error = new Error("doorInstructions is required");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const instructions = data.doorInstructions.trim();
+    const locationId = order.location_id || `loc_${Math.round(Number(order.delivery_latitude) * 1000)}_${Math.round(Number(order.delivery_longitude) * 1000)}`;
+
+    // 1. Update orders table
+    const updatedOrder = await orderRepository.updateDeliveryInstructions(orderId, instructions);
+
+    // 2. Persist in location_instructions table so all future orders to this location reuse it
+    await orderRepository.saveLocationInstructions({
+        locationId,
+        latitude: order.delivery_latitude,
+        longitude: order.delivery_longitude,
+        doorInstructions: instructions,
+        lastDriverId: data.driverId || data.lastDriverId,
+    });
+
+    return updatedOrder;
+}
+
 module.exports = {
     createOrder,
     getOrder,
     getAllOrders,
     updateOrderStatus,
+    getLocationInstructions,
+    saveLocationInstructions,
+    saveOrderInstructions,
 };

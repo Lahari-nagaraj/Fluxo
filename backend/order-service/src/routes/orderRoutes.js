@@ -5,6 +5,9 @@ const {
     getOrder,
     getAllOrders,
     updateOrderStatus,
+    getLocationInstructions,
+    saveLocationInstructions,
+    saveOrderInstructions,
 } = require("../controllers/orderController");
 
 const router = express.Router();
@@ -12,6 +15,18 @@ const router = express.Router();
 router.post("/", createOrder);
 
 router.get("/", getAllOrders);
+
+router.get(
+    "/locations/:locationId/instructions",
+    getLocationInstructions
+);
+
+router.post(
+    "/locations/:locationId/instructions",
+    saveLocationInstructions
+);
+
+router.post("/:id/instructions", saveOrderInstructions);
 
 router.get("/:id", getOrder);
 

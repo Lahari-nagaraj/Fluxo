@@ -55,9 +55,61 @@ async function updateOrderStatus(req, res, next) {
     }
 }
 
+async function getLocationInstructions(req, res, next) {
+    try {
+        const instructions = await orderService.getLocationInstructions(
+            req.params.locationId
+        );
+
+        res.status(200).json({
+            success: true,
+            data: instructions,
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+async function saveLocationInstructions(req, res, next) {
+    try {
+        const result = await orderService.saveLocationInstructions(
+            req.params.locationId,
+            req.body
+        );
+
+        res.status(200).json({
+            success: true,
+            message: "Location instructions saved successfully",
+            data: result,
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
+async function saveOrderInstructions(req, res, next) {
+    try {
+        const order = await orderService.saveOrderInstructions(
+            req.params.id,
+            req.body
+        );
+
+        res.status(200).json({
+            success: true,
+            message: "Order delivery instructions saved successfully",
+            data: order,
+        });
+    } catch (error) {
+        next(error);
+    }
+}
+
 module.exports = {
     createOrder,
     getOrder,
     getAllOrders,
     updateOrderStatus,
+    getLocationInstructions,
+    saveLocationInstructions,
+    saveOrderInstructions,
 };

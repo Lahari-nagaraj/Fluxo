@@ -16,7 +16,10 @@ import {
   resolveAddressToCoordinates,
   calculateDistanceKm,
   getNearestLocality,
+  toLocationId,
 } from "../utils/locations";
+import { orderApi } from "../services/api";
+import { Bell, KeyRound, Sparkles } from "lucide-react";
 import "./CreateOrderForm.css";
 
 const POPULAR_PICKUP_CHIPS = [
@@ -70,6 +73,46 @@ export default function CreateOrderForm({ onClose, onSubmit, submitting }) {
   const [formError, setFormError] = useState("");
   const pickupDebounce = useRef(null);
   const deliveryDebounce = useRef(null);
+
+  // Location ID and Door Instructions State
+  const [doorInstructions, setDoorInstructions] = useState("");
+  const [savedInstructions, setSavedInstructions] = useState(null);
+  const [loadingInstructions, setLoadingInstructions] = useState(false);
+  const instructionsDebounce = useRef(null);
+
+  const locationId = toLocationId(deliveryArea, deliveryStreet);
+
+  // Check database for existing reach-the-door instructions for this location ID
+  useEffect(() => {
+    if (!locationId) {
+      setSavedInstructions(null);
+      return;
+    }
+
+    if (instructionsDebounce.current) clearTimeout(instructionsDebounce.current);
+    instructionsDebounce.current = setTimeout(async () => {
+      try {
+        setLoadingInstructions(true);
+        const res = await orderApi.getLocationInstructions(locationId);
+        if (res.data?.success && res.data?.data) {
+          setSavedInstructions(res.data.data);
+          if (!doorInstructions) {
+            setDoorInstructions(res.data.data.door_instructions || "");
+          }
+        } else {
+          setSavedInstructions(null);
+        }
+      } catch {
+        setSavedInstructions(null);
+      } finally {
+        setLoadingInstructions(false);
+      }
+    }, 400);
+
+    return () => {
+      if (instructionsDebounce.current) clearTimeout(instructionsDebounce.current);
+    };
+  }, [locationId]);
 
   // Calculate live route distance
   const routeDistance = calculateDistanceKm(
@@ -198,6 +241,10 @@ export default function CreateOrderForm({ onClose, onSubmit, submitting }) {
       deliveryLatitude: dLat,
       deliveryLongitude: dLng,
       priority,
+      locationId: locationId || undefined,
+      addressName: deliveryArea.trim(),
+      streetAddress: deliveryStreet.trim() || undefined,
+      deliveryInstructions: doorInstructions.trim() || (savedInstructions?.door_instructions || undefined),
     };
 
     try {
@@ -500,6 +547,54 @@ export default function CreateOrderForm({ onClose, onSubmit, submitting }) {
               </label>
             </div>
           )}
+
+          {/* Location ID Identifier */}
+          <div className="location-id-badge">
+            <span className="location-id-label">📍 Destination Location ID:</span>
+            <code className="location-id-code">{locationId}</code>
+          </div>
+
+          {/* Saved Reach-The-Door Instructions Alert or First-time Notice */}
+          {savedInstructions ? (
+            <div className="saved-door-alert">
+              <div className="saved-door-alert-header">
+                <Bell size={15} className="bell-icon" />
+                <strong>Stored Reach-the-Door Directions Found</strong>
+                <span className="source-tag">PostgreSQL Cached</span>
+              </div>
+              <p className="saved-door-content">
+                "{savedInstructions.door_instructions}"
+              </p>
+              <div className="saved-door-meta">
+                <span>Location: {savedInstructions.location_id}</span>
+                {savedInstructions.last_driver_id && (
+                  <span> · Saved by Driver: {savedInstructions.last_driver_id}</span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="first-time-location-info">
+              <Sparkles size={14} />
+              <span>
+                New delivery address. Driver can record reach-the-door directions upon arrival.
+              </span>
+            </div>
+          )}
+
+          {/* Reach-The-Door Description / Notes Input */}
+          <label className="form-field">
+            <span>
+              Reach-the-door description / notes {savedInstructions ? "(Edit or keep existing)" : "(Optional)"}
+            </span>
+            <input
+              value={doorInstructions}
+              onChange={(e) => setDoorInstructions(e.target.value)}
+              placeholder="e.g. Use Gate B; entrance is behind the main road, 3rd floor"
+            />
+            <span className="field-hint">
+              This note automatically alerts whichever driver is assigned to deliver here.
+            </span>
+          </label>
         </div>
 
         {/* Route Summary & Estimated Distance */}

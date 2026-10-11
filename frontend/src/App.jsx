@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { io } from "socket.io-client";
 
 import {
@@ -9,6 +9,7 @@ import {
   Activity,
   Plus,
   CheckCircle2,
+  Bell,
 } from "lucide-react";
 
 import Sidebar from "./components/Sidebar";
@@ -31,6 +32,10 @@ export default function App() {
   const [showCreateOrder, setShowCreateOrder] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [createSuccess, setCreateSuccess] = useState("");
+
+  // Assignment alert pop-up state
+  const [assignmentAlert, setAssignmentAlert] = useState(null);
+  const seenAssignmentsRef = useRef(new Set());
 
   const {
     orders,
@@ -67,6 +72,38 @@ export default function App() {
   const activeDeliveries = orders.filter((order) =>
     ["ASSIGNED", "PICKED_UP", "IN_TRANSIT"].includes(order.status)
   ).length;
+
+  // Pop-up alert reminder whenever any order with saved door instructions is assigned to a driver
+  useEffect(() => {
+    for (const order of orders) {
+      if (
+        order.driver_id &&
+        order.delivery_instructions &&
+        ["ASSIGNED", "PICKED_UP", "IN_TRANSIT"].includes(order.status)
+      ) {
+        const key = `${order.order_id}_${order.driver_id}`;
+        if (!seenAssignmentsRef.current.has(key)) {
+          seenAssignmentsRef.current.add(key);
+          setAssignmentAlert({
+            orderId: order.order_id,
+            driverId: order.driver_id,
+            locationId: order.location_id,
+            instructions: order.delivery_instructions,
+          });
+
+          // Trigger browser alert popup as requested
+          setTimeout(() => {
+            window.alert(
+              `🔔 REACH-THE-DOOR REMINDER ALERT!\n\n` +
+              `Driver ${order.driver_id} has been assigned to location: ${order.location_id || "Saved Destination"}\n\n` +
+              `Stored Reach-The-Door Directions:\n"${order.delivery_instructions}"\n\n` +
+              `Order ID: ${order.order_id}`
+            );
+          }, 250);
+        }
+      }
+    }
+  }, [orders]);
 
   const sharedTableProps = {
     orders,
@@ -381,8 +418,33 @@ export default function App() {
             activePage === "Driver Portal" ? "block" : "none",
         }}
       >
-        <DriverPortal />
+        <DriverPortal orders={orders} onRefreshOrders={refresh} />
       </div>
+
+      {/* Floating Reach-the-Door Assignment Reminder Toast */}
+      {assignmentAlert && (
+        <aside className="assignment-alert-toast" role="alert">
+          <div className="alert-toast-header">
+            <span className="bell-toast-icon">🔔</span>
+            <strong>Driver Assigned with Door Instructions!</strong>
+            <button
+              type="button"
+              className="toast-close-btn"
+              onClick={() => setAssignmentAlert(null)}
+              aria-label="Dismiss alert"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="alert-toast-body">
+            "{assignmentAlert.instructions}"
+          </p>
+          <div className="alert-toast-meta">
+            <span>Location: <code>{assignmentAlert.locationId || "N/A"}</code></span>
+            <span>Driver: <code>{assignmentAlert.driverId?.slice(0, 8)}</code></span>
+          </div>
+        </aside>
+      )}
     </div>
   );
 }

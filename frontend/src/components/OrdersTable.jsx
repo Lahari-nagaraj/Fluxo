@@ -114,6 +114,7 @@ export default function OrdersTable({
                 <th>Customer</th>
                 <th>Status</th>
                 <th>Priority</th>
+                <th>Location & Door Notes</th>
                 <th>Pickup zone</th>
                 <th>Created</th>
               </tr>
@@ -135,6 +136,40 @@ export default function OrdersTable({
                   </td>
 
                   <td>{order.priority || "—"}</td>
+
+                  <td>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: "160px" }}>
+                      {order.location_id ? (
+                        <span style={{ fontSize: "11px", color: "#38bdf8", fontFamily: "monospace", fontWeight: 600 }}>
+                          📍 {order.location_id}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: "11px", color: "#64748b" }}>—</span>
+                      )}
+
+                      {order.delivery_instructions && (
+                        <span
+                          title={order.delivery_instructions}
+                          style={{
+                            fontSize: "11px",
+                            color: "#c4b5fd",
+                            background: "#24183d",
+                            border: "1px solid #4a3478",
+                            borderRadius: "4px",
+                            padding: "2px 6px",
+                            maxWidth: "200px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            display: "inline-block",
+                            cursor: "pointer",
+                          }}
+                        >
+                          🔔 {order.delivery_instructions}
+                        </span>
+                      )}
+                    </div>
+                  </td>
 
                   <td>{order.pickup_zone_id || "—"}</td>
 
