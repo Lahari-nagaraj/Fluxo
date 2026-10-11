@@ -16,71 +16,45 @@ const {
     startOrderConsumer,
 } = require("../src/events/orderConsumer");
 
-describe("Order consumer dispatch retries", () => {
+describe("OrderCreated consumer", () => {
     let eachMessage;
 
     beforeEach(async () => {
-        jest.useFakeTimers();
         jest.clearAllMocks();
         consumer.connect.mockResolvedValue();
         consumer.subscribe.mockResolvedValue();
-        consumer.run.mockImplementation(async (options) => {
-            eachMessage = options.eachMessage;
+        consumer.run.mockImplementation(async ({ eachMessage: handler }) => {
+            eachMessage = handler;
         });
 
         await startOrderConsumer();
     });
 
-    afterEach(() => {
-        jest.clearAllTimers();
-        jest.useRealTimers();
+    test("dispatches OrderCreated and treats a waiting order as a completed event", async () => {
+        dispatchOrder.mockResolvedValue({
+            status: "WAITING_FOR_DRIVER",
+            reason: "NO_VALID_DRIVER_LOCATION",
+        });
+
+        await expect(eachMessage({
+            topic: "orders",
+            partition: 0,
+            message: {
+                value: Buffer.from(JSON.stringify({
+                    eventType: "OrderCreated",
+                    orderId: "order-1",
+                })),
+            },
+        })).resolves.toBeUndefined();
+
+        expect(dispatchOrder).toHaveBeenCalledWith("order-1");
     });
 
-    test("schedules a retry for a dispatch conflict without failing the Kafka message handler", async () => {
-        const unavailableError = new Error(
-            "No drivers with fresh locations"
-        );
-        unavailableError.statusCode = 409;
+    test("propagates transient dispatch errors for Kafka retry", async () => {
+        const error = new Error("temporary Redis failure");
+        dispatchOrder.mockRejectedValue(error);
 
-        dispatchOrder
-            .mockRejectedValueOnce(unavailableError)
-            .mockResolvedValueOnce({
-                status: "ASSIGNED",
-            });
-
-        await expect(
-            eachMessage({
-                topic: "orders",
-                partition: 0,
-                message: {
-                    value: Buffer.from(JSON.stringify({
-                        eventType: "OrderCreated",
-                        orderId: "order-1",
-                    })),
-                },
-            })
-        ).resolves.toBeUndefined();
-
-        expect(dispatchOrder)
-            .toHaveBeenCalledTimes(1);
-
-        await jest.advanceTimersByTimeAsync(5000);
-
-        expect(dispatchOrder)
-            .toHaveBeenCalledTimes(2);
-    });
-
-    test("continues retrying while dispatch remains unavailable", async () => {
-        const unavailableError = new Error(
-            "No drivers with fresh locations"
-        );
-        unavailableError.statusCode = 409;
-
-        dispatchOrder.mockRejectedValue(
-            unavailableError
-        );
-
-        await eachMessage({
+        await expect(eachMessage({
             topic: "orders",
             partition: 0,
             message: {
@@ -89,14 +63,21 @@ describe("Order consumer dispatch retries", () => {
                     orderId: "order-2",
                 })),
             },
+        })).rejects.toBe(error);
+    });
+
+    test("ignores unrelated events", async () => {
+        await eachMessage({
+            topic: "orders",
+            partition: 0,
+            message: {
+                value: Buffer.from(JSON.stringify({
+                    eventType: "OrderUpdated",
+                    orderId: "order-3",
+                })),
+            },
         });
 
-        await jest.advanceTimersByTimeAsync(5000);
-        expect(dispatchOrder)
-            .toHaveBeenCalledTimes(2);
-
-        await jest.advanceTimersByTimeAsync(10000);
-        expect(dispatchOrder)
-            .toHaveBeenCalledTimes(3);
+        expect(dispatchOrder).not.toHaveBeenCalled();
     });
 });

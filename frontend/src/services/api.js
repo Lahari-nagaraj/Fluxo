@@ -1,3 +1,4 @@
+
 import axios from "axios";
 
 const api = axios.create({
@@ -18,6 +19,9 @@ export const driverApi = {
   getAll: () => api.get("/drivers"),
   getAvailable: () => api.get("/drivers/available"),
   getById: (driverId) => api.get(`/drivers/${driverId}`),
+  create: (driver) => api.post("/drivers", driver),
+  updateStatus: (driverId, status) =>
+    api.patch(`/drivers/${driverId}/status`, { status }),
 };
 
 export const locationApi = {

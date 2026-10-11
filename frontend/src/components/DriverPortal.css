@@ -1,0 +1,219 @@
+
+.driver-portal {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.driver-portal-heading h2 {
+  margin: 8px 0;
+  font-size: 28px;
+}
+
+.driver-portal-heading p,
+.driver-portal-help {
+  color: var(--text-muted, #9298ab);
+  line-height: 1.6;
+}
+
+.driver-portal-eyebrow {
+  color: #b49aff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+}
+
+.driver-portal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.driver-portal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid #292d3b;
+  border-radius: 14px;
+  background: #11131b;
+}
+
+.driver-portal-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #b49aff;
+}
+
+.driver-portal-card-title h3 {
+  margin: 0;
+  color: #f3f3fa;
+  font-size: 16px;
+}
+
+.driver-portal-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #c5c8d6;
+  font-size: 13px;
+}
+
+.driver-portal-card input,
+.driver-portal-card select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid #303445;
+  border-radius: 8px;
+  background: #0c0e15;
+  color: #f3f3fa;
+  font: inherit;
+}
+
+.driver-portal-primary,
+.driver-portal-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 43px;
+  padding: 11px 16px;
+  border: 0;
+  border-radius: 9px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.driver-portal-primary {
+  background: #b49aff;
+  color: #151020;
+}
+
+.driver-portal-secondary {
+  border: 1px solid #34384a;
+  background: #1b1e2a;
+  color: #f3f3fa;
+}
+
+.driver-portal-primary:disabled,
+.driver-portal-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.driver-portal-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.driver-portal-profile p {
+  margin: 5px 0 0;
+  color: #9298ab;
+  font-size: 13px;
+}
+
+.driver-portal-avatar {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 12px;
+  background: #29213f;
+  color: #c5adff;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.driver-portal-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #292d3b;
+}
+
+.driver-portal-detail span,
+.driver-portal-coordinates span {
+  color: #9298ab;
+  font-size: 12px;
+}
+
+.driver-portal-detail strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.driver-portal-location-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #d4d6e2;
+  font-size: 14px;
+}
+
+.driver-portal-indicator {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #777b8d;
+}
+
+.driver-portal-indicator.online {
+  background: #40d9a0;
+  box-shadow: 0 0 10px #40d9a055;
+}
+
+.driver-portal-coordinates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+  border-radius: 9px;
+  background: #0c0e15;
+}
+
+.driver-portal-coordinates div {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.driver-portal-message {
+  padding: 13px 16px;
+  border: 1px solid;
+  border-radius: 9px;
+  font-size: 14px;
+}
+
+.driver-portal-message.success {
+  border-color: #285b48;
+  background: #12271f;
+  color: #70e6b0;
+}
+
+.driver-portal-message.error {
+  border-color: #6b343e;
+  background: #2a171c;
+  color: #ff9aa8;
+}
+
+.driver-portal-help {
+  margin: 0;
+  font-size: 12px;
+}
+
+@media (max-width: 850px) {
+  .driver-portal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .driver-portal-card {
+    padding: 17px;
+  }
+}

@@ -1,3 +1,4 @@
+
 const crypto = require("crypto");
 
 const {
@@ -173,23 +174,37 @@ async function updateDriverStatus(
             newStatus
         );
 
-    // 5. Update Redis driver state
     const driverKey =
         `driver:${driverId}`;
 
+    const previousDriverState =
+        await redisClient.hGetAll(driverKey);
+
+    const locationKey =
+        `driver:location:${driverId}`;
+
+    const location =
+        await redisClient.hGetAll(locationKey);
+
+    // Determine the active zone for this driver
+    const zoneId =
+        location.zoneId ||
+        previousDriverState.zoneId ||
+        updatedDriver.zone_id ||
+        "";
+
+    // 5. Update Redis driver state
     await redisClient.hSet(driverKey, {
         driverId,
         status: newStatus,
         updatedAt:
             new Date().toISOString(),
-        zoneId:
-            updatedDriver.zone_id || "",
+        zoneId: zoneId || "",
     });
 
     // 6. Maintain global available-driver set
     if (
-        newStatus ===
-        DRIVER_STATUS.AVAILABLE
+        newStatus === DRIVER_STATUS.AVAILABLE
     ) {
         await redisClient.sAdd(
             "drivers:available",
@@ -202,26 +217,38 @@ async function updateDriverStatus(
         );
     }
 
-    // 7. Maintain zone-specific
-    // available-driver set
-    const zoneId =
-        updatedDriver.zone_id;
+    // 7. Maintain zone-specific available-driver sets
+    const knownZones = new Set([
+        previousDriverState.zoneId,
+        updatedDriver.zone_id,
+        location.zoneId,
+        zoneId,
+    ].filter(Boolean));
 
-    if (zoneId) {
-        const zoneKey =
-            `drivers:available:${zoneId}`;
-
-        if (
-            newStatus ===
-            DRIVER_STATUS.AVAILABLE
-        ) {
+    if (
+        newStatus === DRIVER_STATUS.AVAILABLE
+    ) {
+        if (zoneId) {
             await redisClient.sAdd(
-                zoneKey,
+                `drivers:available:${zoneId}`,
                 driverId
             );
-        } else {
+        }
+
+        // Clean up from any previous zones the driver is no longer in
+        for (const knownZoneId of knownZones) {
+            if (knownZoneId !== zoneId) {
+                await redisClient.sRem(
+                    `drivers:available:${knownZoneId}`,
+                    driverId
+                );
+            }
+        }
+    } else {
+        // Driver is no longer available (BUSY, OFFLINE) -> remove from all zone sets
+        for (const knownZoneId of knownZones) {
             await redisClient.sRem(
-                zoneKey,
+                `drivers:available:${knownZoneId}`,
                 driverId
             );
         }
@@ -229,11 +256,13 @@ async function updateDriverStatus(
 
     // 8. Publish DriverAvailable event to Kafka
     if (
-        newStatus ===
-        DRIVER_STATUS.AVAILABLE
+        newStatus === DRIVER_STATUS.AVAILABLE
     ) {
         await publishDriverAvailable(
-            updatedDriver
+            {
+                ...updatedDriver,
+                zone_id: zoneId || null,
+            }
         );
     }
 

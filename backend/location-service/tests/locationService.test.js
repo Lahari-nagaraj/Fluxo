@@ -48,8 +48,25 @@ describe("Location Service zone indexing", () => {
                 longitude: 77.5946,
                 zoneId: "ZONE_2059_5151",
             });
+        expect(redisClient.hSet).toHaveBeenCalledWith(
+            "driver:location:driver-1",
+            expect.objectContaining({
+                latitude: "12.9716",
+                longitude: "77.5946",
+                zoneId: "ZONE_2059_5151",
+                updatedAt: expect.any(String),
+            })
+        );
+        expect(redisClient.expire).toHaveBeenCalledWith(
+            "driver:location:driver-1",
+            60
+        );
         expect(redisClient.sRem).toHaveBeenCalledWith(
             "drivers:available:ZONE_A",
+            "driver-1"
+        );
+        expect(redisClient.sAdd).toHaveBeenCalledWith(
+            "drivers:available",
             "driver-1"
         );
         expect(redisClient.sAdd).toHaveBeenCalledWith(

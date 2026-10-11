@@ -1,5 +1,7 @@
+
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
+
 import {
   Package,
   Truck,
@@ -14,6 +16,7 @@ import Topbar from "./components/Topbar";
 import StatCard from "./components/StatCard";
 import OrdersTable from "./components/OrdersTable";
 import DriversTable from "./components/DriversTable";
+import DriverPortal from "./components/DriverPortal";
 import LiveMap from "./components/LiveMap";
 import CreateOrderForm from "./components/CreateOrderForm";
 import useDashboardData from "./hooks/useDashboardData";
@@ -43,8 +46,12 @@ export default function App() {
     const socket = io(LOCATION_SOCKET_URL);
 
     socket.on("driver_location_updated", applyLocationUpdate);
+
     socket.on("connect_error", (err) => {
-      console.error("Location Socket.IO connection failed:", err.message);
+      console.error(
+        "Location Socket.IO connection failed:",
+        err.message
+      );
     });
 
     return () => {
@@ -54,11 +61,11 @@ export default function App() {
   }, [applyLocationUpdate]);
 
   const availableDrivers = drivers.filter(
-    (driver) => driver.status === "AVAILABLE",
+    (driver) => driver.status === "AVAILABLE"
   ).length;
 
   const activeDeliveries = orders.filter((order) =>
-    ["ASSIGNED", "PICKED_UP", "IN_TRANSIT"].includes(order.status),
+    ["ASSIGNED", "PICKED_UP", "IN_TRANSIT"].includes(order.status)
   ).length;
 
   const sharedTableProps = {
@@ -77,8 +84,9 @@ export default function App() {
       const createdOrder = response.data?.data;
 
       setShowCreateOrder(false);
+
       setCreateSuccess(
-        `Order ${createdOrder?.order_id || ""} created successfully.`,
+        `Order ${createdOrder?.order_id || ""} created successfully.`
       );
 
       await refresh();
@@ -97,7 +105,10 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar activePage={activePage} onNavigate={setActivePage} />
+      <Sidebar
+        activePage={activePage}
+        onNavigate={setActivePage}
+      />
 
       <main className="main-content">
         <Topbar activePage={activePage} />
@@ -111,7 +122,9 @@ export default function App() {
               </div>
 
               <h1>
-                {activePage === "Overview" ? "Operations overview" : activePage}
+                {activePage === "Overview"
+                  ? "Operations overview"
+                  : activePage}
               </h1>
 
               <p className="page-subtitle">
@@ -128,7 +141,10 @@ export default function App() {
           {error && (
             <div className="dashboard-error">
               {error}
-              <button className="text-button" onClick={refresh}>
+              <button
+                className="text-button"
+                onClick={refresh}
+              >
                 Retry
               </button>
             </div>
@@ -164,7 +180,11 @@ export default function App() {
                 <StatCard
                   title="API status"
                   value={
-                    loading ? "Checking…" : error ? "API issue" : "Connected"
+                    loading
+                      ? "Checking…"
+                      : error
+                        ? "API issue"
+                        : "Connected"
                   }
                   description="Orders and Drivers API requests"
                   icon={Activity}
@@ -185,7 +205,11 @@ export default function App() {
                       <h3>Network summary</h3>
                       <p>Current backend data</p>
                     </div>
-                    <Activity size={19} className="muted-icon" />
+
+                    <Activity
+                      size={19}
+                      className="muted-icon"
+                    />
                   </div>
 
                   <div className="network-summary">
@@ -196,7 +220,9 @@ export default function App() {
 
                     <div className="summary-row">
                       <span>Drivers with locations</span>
-                      <strong>{Object.keys(locations).length}</strong>
+                      <strong>
+                        {Object.keys(locations).length}
+                      </strong>
                     </div>
 
                     <div className="summary-row">
@@ -204,7 +230,8 @@ export default function App() {
                       <strong>
                         {
                           orders.filter(
-                            (order) => order.status === "SEARCHING_DRIVER",
+                            (order) =>
+                              order.status === "SEARCHING_DRIVER"
                           ).length
                         }
                       </strong>
@@ -214,8 +241,9 @@ export default function App() {
                       <span>Assigned orders</span>
                       <strong>
                         {
-                          orders.filter((order) => order.status === "ASSIGNED")
-                            .length
+                          orders.filter(
+                            (order) => order.status === "ASSIGNED"
+                          ).length
                         }
                       </strong>
                     </div>
@@ -246,15 +274,26 @@ export default function App() {
                   }}
                 >
                   <Plus size={16} />
-                  {showCreateOrder ? "Close form" : "Create order"}
+
+                  {showCreateOrder
+                    ? "Close form"
+                    : "Create order"}
                 </button>
               </div>
 
               {createSuccess && (
-                <div className="create-success" role="status">
+                <div
+                  className="create-success"
+                  role="status"
+                >
                   <CheckCircle2 size={18} />
+
                   <span>{createSuccess}</span>
-                  <button className="text-button" onClick={refresh}>
+
+                  <button
+                    className="text-button"
+                    onClick={refresh}
+                  >
                     Refresh status
                   </button>
                 </div>
@@ -282,12 +321,17 @@ export default function App() {
           )}
 
           {activePage === "Live Tracking" && (
-            <LiveMap drivers={drivers} locations={locations} orders={orders} />
+            <LiveMap
+              drivers={drivers}
+              locations={locations}
+              orders={orders}
+            />
           )}
 
           {activePage === "System" && (
             <section className="panel network-summary">
               <h3>Service connectivity</h3>
+
               <p className="page-subtitle">
                 Orders and Drivers data loaded through the API Gateway.
               </p>
@@ -307,18 +351,38 @@ export default function App() {
                 <strong>{Object.keys(locations).length}</strong>
               </div>
 
-              <button className="refresh-button" onClick={refresh}>
+              <button
+                className="refresh-button"
+                onClick={refresh}
+              >
                 Refresh backend data
               </button>
             </section>
           )}
 
           <footer className="page-footer">
-            <span>FLUXO DELIVERY ORCHESTRATION PLATFORM</span>
-            <span>Distributed logistics · Real-time location events</span>
+            <span>
+              FLUXO DELIVERY ORCHESTRATION PLATFORM
+            </span>
+
+            <span>
+              Distributed logistics · Real-time location events
+            </span>
           </footer>
         </div>
       </main>
+
+      {/* Keep DriverPortal mounted when switching dashboard pages.
+          This prevents its cleanup effect from stopping location sharing
+          just because another page is selected. */}
+      <div
+        style={{
+          display:
+            activePage === "Driver Portal" ? "block" : "none",
+        }}
+      >
+        <DriverPortal />
+      </div>
     </div>
   );
 }

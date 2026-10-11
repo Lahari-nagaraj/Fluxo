@@ -1,4 +1,5 @@
 const { createClient } = require("redis");
+const crypto = require("crypto");
 
 const redisClient = createClient({
     url: process.env.REDIS_URL || "redis://localhost:6379",
@@ -21,41 +22,82 @@ async function connectRedis() {
 async function reserveDriver(
     driverId,
     orderId,
-    ttlSeconds = 30
+    ttlSeconds = 120
 ) {
     const key =
         `driver:reservation:${driverId}`;
+    const reservationToken =
+        `${orderId}:${crypto.randomUUID()}`;
 
     const result =
         await redisClient.set(
             key,
-            orderId,
+            reservationToken,
             {
                 NX: true,
                 EX: ttlSeconds,
             }
         );
 
-    return result === "OK";
+    return result === "OK"
+        ? reservationToken
+        : null;
 }
 
 async function releaseDriverReservation(
     driverId,
-    orderId
+    reservationToken
 ) {
     const key =
         `driver:reservation:${driverId}`;
 
-    const currentOrderId =
-        await redisClient.get(key);
+    return redisClient.eval(
+        `
+            if redis.call("GET", KEYS[1]) == ARGV[1] then
+                return redis.call("DEL", KEYS[1])
+            end
+            return 0
+        `,
+        {
+            keys: [key],
+            arguments: [reservationToken],
+        }
+    ).then((result) => Number(result) === 1);
+}
 
-    if (currentOrderId === orderId) {
-        await redisClient.del(key);
+async function reserveOrderDispatch(
+    orderId,
+    token = crypto.randomUUID(),
+    ttlSeconds = 120
+) {
+    const result = await redisClient.set(
+        `dispatch:reservation:${orderId}`,
+        token,
+        {
+            NX: true,
+            EX: ttlSeconds,
+        }
+    );
 
-        return true;
-    }
+    return result === "OK" ? token : null;
+}
 
-    return false;
+async function releaseOrderDispatch(
+    orderId,
+    token
+) {
+    return redisClient.eval(
+        `
+            if redis.call("GET", KEYS[1]) == ARGV[1] then
+                return redis.call("DEL", KEYS[1])
+            end
+            return 0
+        `,
+        {
+            keys: [`dispatch:reservation:${orderId}`],
+            arguments: [token],
+        }
+    ).then((result) => Number(result) === 1);
 }
 
 async function addWaitingOrder(
@@ -86,12 +128,32 @@ async function getWaitingOrders(
     );
 }
 
+async function getWaitingZones() {
+    const zones = [];
+
+    for await (const keys of redisClient.scanIterator({
+        MATCH: "dispatch:waiting:*",
+        COUNT: 100,
+    })) {
+        for (const key of keys) {
+            zones.push(
+                key.slice("dispatch:waiting:".length)
+            );
+        }
+    }
+
+    return zones;
+}
+
 module.exports = {
     redisClient,
     connectRedis,
     reserveDriver,
     releaseDriverReservation,
+    reserveOrderDispatch,
+    releaseOrderDispatch,
     addWaitingOrder,
     removeWaitingOrder,
     getWaitingOrders,
+    getWaitingZones,
 };

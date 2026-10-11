@@ -1,3 +1,4 @@
+
 const locationRepository = require("../repositories/locationRepository");
 const { redisClient } = require("../clients/redisClient");
 const { getZoneId } = require("../../utils/zone");
@@ -113,6 +114,11 @@ async function updateLocation(data) {
     }
 
     if (driverState.status === "AVAILABLE") {
+        await redisClient.sAdd(
+            "drivers:available",
+            data.driverId
+        );
+
         await redisClient.sAdd(
             `drivers:available:${zoneId}`,
             data.driverId

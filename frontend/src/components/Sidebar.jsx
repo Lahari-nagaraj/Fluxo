@@ -3,15 +3,16 @@ import {
   Package,
   Truck,
   MapPinned,
-  Activity,
   Settings,
   Zap,
+  UserRoundPlus,
 } from "lucide-react";
 
 const navigation = [
   { label: "Overview", icon: LayoutDashboard },
   { label: "Orders", icon: Package },
   { label: "Drivers", icon: Truck },
+  { label: "Driver Portal", icon: UserRoundPlus },
   { label: "Live Tracking", icon: MapPinned },
 ];
 
