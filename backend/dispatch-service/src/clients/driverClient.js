@@ -20,7 +20,16 @@ async function updateDriverStatus(driverId, status) {
     return response.data.data;
 }
 
+async function getAllDrivers() {
+    const response = await axios.get(
+        `${config.driverServiceUrl}/drivers`
+    );
+
+    return response.data.data;
+}
+
 module.exports = {
     getAvailableDrivers,
+    getAllDrivers,
     updateDriverStatus,
 };

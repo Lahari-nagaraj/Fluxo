@@ -2,6 +2,7 @@
 const orderClient = require("../clients/orderClient");
 const driverClient = require("../clients/driverClient");
 const locationClient = require("../clients/locationClient");
+const { startDeliveryLifecycle } = require("./deliveryLifecycleService");
 
 const {
     calculateDistanceKm,
@@ -321,6 +322,8 @@ async function dispatchOrder(orderId) {
                 console.log(
                     `✅ Order ${orderId} assigned to nearest driver ${candidate.driverId} (${candidate.distance.toFixed(2)} km away)`
                 );
+
+                startDeliveryLifecycle(orderId, candidate.driverId);
 
                 return {
                     status: "ASSIGNED",

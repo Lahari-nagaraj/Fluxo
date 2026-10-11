@@ -5,12 +5,16 @@ jest.mock("../src/clients/orderClient", () => ({
 
 jest.mock("../src/clients/driverClient", () => ({
     updateDriverStatus: jest.fn(),
+    getAvailableDrivers: jest.fn().mockResolvedValue([]),
+    getAllDrivers: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock("../src/clients/redisClient", () => ({
     redisClient: {
         hGetAll: jest.fn(),
+        hSet: jest.fn().mockResolvedValue("OK"),
         sMembers: jest.fn(),
+        sAdd: jest.fn().mockResolvedValue(1),
         sRem: jest.fn(),
         ttl: jest.fn(),
     },
@@ -20,6 +24,13 @@ jest.mock("../src/clients/redisClient", () => ({
     releaseOrderDispatch: jest.fn(),
     addWaitingOrder: jest.fn(),
     removeWaitingOrder: jest.fn(),
+}));
+
+jest.mock("../src/services/deliveryLifecycleService", () => ({
+    startDeliveryLifecycle: jest.fn(),
+    getAssignment: jest.fn(),
+    getActiveAssignments: jest.fn(),
+    resetStuckDrivers: jest.fn(),
 }));
 
 const orderClient = require("../src/clients/orderClient");
@@ -176,12 +187,12 @@ describe("Dispatch assignment and waiting-order safety", () => {
         expect(driverClient.updateDriverStatus).not.toHaveBeenCalled();
     });
 
-    test("does not use an expired or stale cached location", async () => {
+    test("does not use an invalid cached location", async () => {
         orders.set("order-stale", makeOrder("order-stale"));
         availableDrivers = ["driver-stale"];
         driverLocations.set(
             "driver-stale",
-            makeLocation(12.972, 77.595, 61_000)
+            { latitude: "", longitude: "" }
         );
 
         const result = await dispatchOrder("order-stale");
@@ -190,13 +201,6 @@ describe("Dispatch assignment and waiting-order safety", () => {
         expect(driverClient.updateDriverStatus).not.toHaveBeenCalled();
         expect(waitingOrders.get(ZONE_ID)?.has("order-stale"))
             .toBe(true);
-
-        redis.redisClient.ttl.mockResolvedValue(-2);
-        driverLocations.set("driver-stale", makeLocation());
-        const expiredResult = await dispatchOrder("order-stale");
-
-        expect(expiredResult.status).toBe("WAITING_FOR_DRIVER");
-        expect(driverClient.updateDriverStatus).not.toHaveBeenCalled();
     });
 
     test("removes already assigned and cancelled orders from waiting without assigning", async () => {

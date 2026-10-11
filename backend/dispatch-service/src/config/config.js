@@ -11,4 +11,7 @@ module.exports = {
 
     orderServiceUrl:
         process.env.ORDER_SERVICE_URL || "http://localhost:3001",
+
+    simulationMinuteMs:
+        Number(process.env.SIMULATION_MINUTE_MS || 1000),
 };

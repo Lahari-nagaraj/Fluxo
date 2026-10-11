@@ -8,4 +8,19 @@ router.post(
     controller.dispatchOrder
 );
 
+router.get(
+    "/assignments",
+    controller.getActiveAssignments
+);
+
+router.get(
+    "/assignments/:orderId",
+    controller.getAssignment
+);
+
+router.post(
+    "/reset-stuck-drivers",
+    controller.resetStuckDrivers
+);
+
 module.exports = router;
