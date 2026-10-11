@@ -1,70 +1,203 @@
-import { useState } from "react";
-import { X, PackagePlus } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import {
+  X,
+  PackagePlus,
+  MapPin,
+  Navigation,
+  LocateFixed,
+  Route,
+  ChevronDown,
+  ChevronUp,
+  Check,
+} from "lucide-react";
+import {
+  BENGALURU_LOCALITIES,
+  searchLocalities,
+  resolveAddressToCoordinates,
+  calculateDistanceKm,
+  getNearestLocality,
+} from "../utils/locations";
+import "./CreateOrderForm.css";
 
-const INITIAL_FORM = {
-  customerId: "",
-  pickupLatitude: "12.9700",
-  pickupLongitude: "77.5900",
-  deliveryLatitude: "12.9800",
-  deliveryLongitude: "77.6000",
-  priority: "NORMAL",
-};
+const POPULAR_PICKUP_CHIPS = [
+  "Vijayanagar",
+  "Koramangala",
+  "Indiranagar",
+  "HSR Layout",
+  "Whitefield",
+  "MG Road",
+];
+
+const POPULAR_DELIVERY_CHIPS = [
+  "Koramangala",
+  "Indiranagar",
+  "HSR Layout",
+  "Jayanagar",
+  "Whitefield",
+  "Malleshwaram",
+];
 
 export default function CreateOrderForm({ onClose, onSubmit, submitting }) {
-  const [form, setForm] = useState(INITIAL_FORM);
-  const [formError, setFormError] = useState("");
+  const [customerId, setCustomerId] = useState(
+    () => `customer-${Date.now().toString().slice(-4)}`
+  );
+  const [priority, setPriority] = useState("NORMAL");
 
-  function updateField(event) {
-    const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: value }));
+  // Pickup Location State
+  const [pickupArea, setPickupArea] = useState("Vijayanagar, Bengaluru");
+  const [pickupStreet, setPickupStreet] = useState("");
+  const [pickupCoords, setPickupCoords] = useState({
+    latitude: 12.9719,
+    longitude: 77.5304,
+  });
+  const [pickupIsLive, setPickupIsLive] = useState(false);
+  const [pickupSuggestions, setPickupSuggestions] = useState([]);
+  const [showPickupDropdown, setShowPickupDropdown] = useState(false);
+  const [detectingPickupLive, setDetectingPickupLive] = useState(false);
+  const [showManualPickup, setShowManualPickup] = useState(false);
+
+  // Delivery Location State
+  const [deliveryArea, setDeliveryArea] = useState("Koramangala, Bengaluru");
+  const [deliveryStreet, setDeliveryStreet] = useState("");
+  const [deliveryCoords, setDeliveryCoords] = useState({
+    latitude: 12.9352,
+    longitude: 77.6245,
+  });
+  const [deliverySuggestions, setDeliverySuggestions] = useState([]);
+  const [showDeliveryDropdown, setShowDeliveryDropdown] = useState(false);
+  const [showManualDelivery, setShowManualDelivery] = useState(false);
+
+  const [formError, setFormError] = useState("");
+  const pickupDebounce = useRef(null);
+  const deliveryDebounce = useRef(null);
+
+  // Calculate live route distance
+  const routeDistance = calculateDistanceKm(
+    Number(pickupCoords.latitude),
+    Number(pickupCoords.longitude),
+    Number(deliveryCoords.latitude),
+    Number(deliveryCoords.longitude)
+  );
+
+  // Handle Pickup area input typing with debounced geocoding
+  function handlePickupAreaChange(val) {
+    setPickupArea(val);
+    setPickupIsLive(false);
+
+    const matches = searchLocalities(val);
+    setPickupSuggestions(matches);
+    setShowPickupDropdown(matches.length > 0);
+
+    if (pickupDebounce.current) clearTimeout(pickupDebounce.current);
+    pickupDebounce.current = setTimeout(async () => {
+      if (val.trim()) {
+        const resolved = await resolveAddressToCoordinates(val);
+        setPickupCoords({
+          latitude: resolved.latitude,
+          longitude: resolved.longitude,
+        });
+      }
+    }, 600);
   }
 
-  function validate() {
-    if (!form.customerId.trim()) {
-      return "Customer ID is required.";
+  // Handle Delivery area input typing with debounced geocoding
+  function handleDeliveryAreaChange(val) {
+    setDeliveryArea(val);
+
+    const matches = searchLocalities(val);
+    setDeliverySuggestions(matches);
+    setShowDeliveryDropdown(matches.length > 0);
+
+    if (deliveryDebounce.current) clearTimeout(deliveryDebounce.current);
+    deliveryDebounce.current = setTimeout(async () => {
+      if (val.trim()) {
+        const resolved = await resolveAddressToCoordinates(val);
+        setDeliveryCoords({
+          latitude: resolved.latitude,
+          longitude: resolved.longitude,
+        });
+      }
+    }, 600);
+  }
+
+  // Select locality from suggestions or chip
+  function selectPickupLocality(locality) {
+    setPickupArea(locality.name);
+    setPickupCoords({
+      latitude: locality.latitude,
+      longitude: locality.longitude,
+    });
+    setPickupIsLive(false);
+    setShowPickupDropdown(false);
+  }
+
+  function selectDeliveryLocality(locality) {
+    setDeliveryArea(locality.name);
+    setDeliveryCoords({
+      latitude: locality.latitude,
+      longitude: locality.longitude,
+    });
+    setShowDeliveryDropdown(false);
+  }
+
+  // "Use my browser's live location" handler
+  function handleUseLiveLocation() {
+    if (!navigator.geolocation) {
+      setFormError("Geolocation is not supported by your browser.");
+      return;
     }
 
-    const coordinateFields = [
-      ["Pickup latitude", form.pickupLatitude, -90, 90],
-      ["Pickup longitude", form.pickupLongitude, -180, 180],
-      ["Delivery latitude", form.deliveryLatitude, -90, 90],
-      ["Delivery longitude", form.deliveryLongitude, -180, 180],
-    ];
+    setDetectingPickupLive(true);
+    setFormError("");
 
-    for (const [label, value, min, max] of coordinateFields) {
-      const number = Number(value);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = parseFloat(pos.coords.latitude.toFixed(6));
+        const lng = parseFloat(pos.coords.longitude.toFixed(6));
+        const nearest = getNearestLocality(lat, lng);
 
-      if (value.trim() === "" || !Number.isFinite(number)) {
-        return `${label} must be a valid number.`;
-      }
-
-      if (number < min || number > max) {
-        return `${label} must be between ${min} and ${max}.`;
-      }
-    }
-
-    return "";
+        setPickupCoords({ latitude: lat, longitude: lng });
+        setPickupArea(`Live Location (${nearest.displayName})`);
+        setPickupIsLive(true);
+        setDetectingPickupLive(false);
+      },
+      (err) => {
+        setDetectingPickupLive(false);
+        setFormError(
+          `Could not detect live location: ${err.message}. Please select or enter an address.`
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
+    setFormError("");
 
-    const validationError = validate();
+    const pLat = Number(pickupCoords.latitude);
+    const pLng = Number(pickupCoords.longitude);
+    const dLat = Number(deliveryCoords.latitude);
+    const dLng = Number(deliveryCoords.longitude);
 
-    if (validationError) {
-      setFormError(validationError);
+    if (!Number.isFinite(pLat) || !Number.isFinite(pLng)) {
+      setFormError("Please select a valid pickup location.");
       return;
     }
 
-    setFormError("");
+    if (!Number.isFinite(dLat) || !Number.isFinite(dLng)) {
+      setFormError("Please select a valid delivery location.");
+      return;
+    }
 
+    // Prepare payload matching backend Order Service exactly
     const payload = {
-      customerId: form.customerId.trim(),
-      pickupLatitude: Number(form.pickupLatitude),
-      pickupLongitude: Number(form.pickupLongitude),
-      deliveryLatitude: Number(form.deliveryLatitude),
-      deliveryLongitude: Number(form.deliveryLongitude),
-      priority: form.priority,
+      customerId: customerId.trim() || `customer-${Date.now().toString().slice(-4)}`,
+      pickupLatitude: pLat,
+      pickupLongitude: pLng,
+      deliveryLatitude: dLat,
+      deliveryLongitude: dLng,
+      priority,
     };
 
     try {
@@ -79,11 +212,11 @@ export default function CreateOrderForm({ onClose, onSubmit, submitting }) {
       <div className="panel-header">
         <div className="create-order-heading">
           <div className="create-order-icon">
-            <PackagePlus size={20} />
+            <PackagePlus size={22} />
           </div>
           <div>
-            <h3>Create delivery order</h3>
-            <p>Enter the pickup and delivery coordinates.</p>
+            <h3>Create Delivery Order</h3>
+            <p>Enter pickup & delivery addresses. Coordinates are automatically mapped.</p>
           </div>
         </div>
 
@@ -93,94 +226,302 @@ export default function CreateOrderForm({ onClose, onSubmit, submitting }) {
           onClick={onClose}
           aria-label="Close order form"
         >
-          <X size={17} />
+          <X size={18} />
         </button>
       </div>
 
       <form className="create-order-form" onSubmit={handleSubmit}>
+        {/* Customer ID */}
         <label className="form-field full-width">
           <span>Customer ID</span>
           <input
-            name="customerId"
-            value={form.customerId}
-            onChange={updateField}
-            placeholder="e.g. customer-001"
+            value={customerId}
+            onChange={(e) => setCustomerId(e.target.value)}
+            placeholder="e.g. customer-vijay-101"
             maxLength={100}
             required
           />
         </label>
 
-        <div className="coordinate-section">
-          <h4>Pickup location</h4>
-          <div className="coordinate-grid">
+        {/* ======================================================== */}
+        {/* PICKUP LOCATION CARD */}
+        {/* ======================================================== */}
+        <div className="location-card">
+          <div className="location-card-header">
+            <div className="location-card-title">
+              <MapPin size={17} className="title-icon" />
+              <span>Pickup Location</span>
+              {pickupIsLive && (
+                <span className="live-badge">
+                  <span className="live-badge-dot" />
+                  Live GPS
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className={`live-location-btn ${pickupIsLive ? "active" : ""}`}
+              onClick={handleUseLiveLocation}
+              disabled={detectingPickupLive}
+              title="Use my browser's live GPS location"
+            >
+              <LocateFixed size={13} />
+              {detectingPickupLive ? "Detecting…" : "Use live location"}
+            </button>
+          </div>
+
+          {/* Quick chips */}
+          <div className="quick-chips-row">
+            <span className="quick-chips-label">Popular:</span>
+            {POPULAR_PICKUP_CHIPS.map((chipName) => {
+              const loc = BENGALURU_LOCALITIES.find(
+                (l) => l.displayName === chipName
+              );
+              const isSelected = pickupArea.toLowerCase().includes(chipName.toLowerCase());
+              return (
+                <button
+                  key={chipName}
+                  type="button"
+                  className={`chip-btn ${isSelected ? "selected" : ""}`}
+                  onClick={() => loc && selectPickupLocality(loc)}
+                >
+                  {chipName}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Address / Area input with suggestions */}
+          <div className="input-with-suggestions">
             <label className="form-field">
-              <span>Latitude</span>
+              <span>Area / Locality</span>
               <input
-                name="pickupLatitude"
-                type="number"
-                min="-90"
-                max="90"
-                step="any"
-                value={form.pickupLatitude}
-                onChange={updateField}
+                value={pickupArea}
+                onChange={(e) => handlePickupAreaChange(e.target.value)}
+                onFocus={() => {
+                  const m = searchLocalities(pickupArea);
+                  setPickupSuggestions(m);
+                  setShowPickupDropdown(m.length > 0);
+                }}
+                placeholder="e.g. Vijayanagar, Bengaluru"
                 required
               />
             </label>
 
+            {showPickupDropdown && pickupSuggestions.length > 0 && (
+              <div className="suggestions-dropdown">
+                {pickupSuggestions.map((loc) => (
+                  <div
+                    key={loc.name}
+                    className="suggestion-item"
+                    onMouseDown={() => selectPickupLocality(loc)}
+                  >
+                    <span>{loc.name}</span>
+                    <span className="suggestion-coords">
+                      {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Optional Street Address */}
+          <label className="form-field">
+            <span>Street / Door No. / Landmark (Optional)</span>
+            <input
+              value={pickupStreet}
+              onChange={(e) => setPickupStreet(e.target.value)}
+              placeholder="e.g. 5th Main Rd, Near Vijayanagar Metro Station"
+            />
+          </label>
+
+          {/* Resolved Coordinates Badge & Toggle */}
+          <div className="coord-badge">
+            <span>
+              Mapped GPS: <strong>{pickupCoords.latitude}, {pickupCoords.longitude}</strong>
+            </span>
+            <button
+              type="button"
+              className="toggle-coords-btn"
+              onClick={() => setShowManualPickup((curr) => !curr)}
+            >
+              {showManualPickup ? "Hide coords" : "Edit coords"}
+            </button>
+          </div>
+
+          {showManualPickup && (
+            <div className="manual-coords-grid">
+              <label>
+                Latitude
+                <input
+                  type="number"
+                  step="any"
+                  value={pickupCoords.latitude}
+                  onChange={(e) =>
+                    setPickupCoords((c) => ({ ...c, latitude: e.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label>
+                Longitude
+                <input
+                  type="number"
+                  step="any"
+                  value={pickupCoords.longitude}
+                  onChange={(e) =>
+                    setPickupCoords((c) => ({ ...c, longitude: e.target.value }))
+                  }
+                  required
+                />
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* ======================================================== */}
+        {/* DELIVERY LOCATION CARD */}
+        {/* ======================================================== */}
+        <div className="location-card">
+          <div className="location-card-header">
+            <div className="location-card-title delivery">
+              <Navigation size={17} className="title-icon" />
+              <span>Delivery Location</span>
+            </div>
+          </div>
+
+          {/* Quick chips */}
+          <div className="quick-chips-row">
+            <span className="quick-chips-label">Popular:</span>
+            {POPULAR_DELIVERY_CHIPS.map((chipName) => {
+              const loc = BENGALURU_LOCALITIES.find(
+                (l) => l.displayName === chipName
+              );
+              const isSelected = deliveryArea.toLowerCase().includes(chipName.toLowerCase());
+              return (
+                <button
+                  key={chipName}
+                  type="button"
+                  className={`chip-btn ${isSelected ? "selected" : ""}`}
+                  onClick={() => loc && selectDeliveryLocality(loc)}
+                >
+                  {chipName}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Address / Area input with suggestions */}
+          <div className="input-with-suggestions">
             <label className="form-field">
-              <span>Longitude</span>
+              <span>Area / Locality</span>
               <input
-                name="pickupLongitude"
-                type="number"
-                min="-180"
-                max="180"
-                step="any"
-                value={form.pickupLongitude}
-                onChange={updateField}
+                value={deliveryArea}
+                onChange={(e) => handleDeliveryAreaChange(e.target.value)}
+                onFocus={() => {
+                  const m = searchLocalities(deliveryArea);
+                  setDeliverySuggestions(m);
+                  setShowDeliveryDropdown(m.length > 0);
+                }}
+                placeholder="e.g. Koramangala, Bengaluru"
                 required
               />
             </label>
+
+            {showDeliveryDropdown && deliverySuggestions.length > 0 && (
+              <div className="suggestions-dropdown">
+                {deliverySuggestions.map((loc) => (
+                  <div
+                    key={loc.name}
+                    className="suggestion-item"
+                    onMouseDown={() => selectDeliveryLocality(loc)}
+                  >
+                    <span>{loc.name}</span>
+                    <span className="suggestion-coords">
+                      {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Optional Street Address */}
+          <label className="form-field">
+            <span>Street / Door No. / Landmark (Optional)</span>
+            <input
+              value={deliveryStreet}
+              onChange={(e) => setDeliveryStreet(e.target.value)}
+              placeholder="e.g. 80ft Road, Sony World Signal"
+            />
+          </label>
+
+          {/* Resolved Coordinates Badge & Toggle */}
+          <div className="coord-badge">
+            <span>
+              Mapped GPS: <strong>{deliveryCoords.latitude}, {deliveryCoords.longitude}</strong>
+            </span>
+            <button
+              type="button"
+              className="toggle-coords-btn"
+              onClick={() => setShowManualDelivery((curr) => !curr)}
+            >
+              {showManualDelivery ? "Hide coords" : "Edit coords"}
+            </button>
+          </div>
+
+          {showManualDelivery && (
+            <div className="manual-coords-grid">
+              <label>
+                Latitude
+                <input
+                  type="number"
+                  step="any"
+                  value={deliveryCoords.latitude}
+                  onChange={(e) =>
+                    setDeliveryCoords((c) => ({ ...c, latitude: e.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label>
+                Longitude
+                <input
+                  type="number"
+                  step="any"
+                  value={deliveryCoords.longitude}
+                  onChange={(e) =>
+                    setDeliveryCoords((c) => ({ ...c, longitude: e.target.value }))
+                  }
+                  required
+                />
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* Route Summary & Estimated Distance */}
+        <div className="route-summary-bar">
+          <div className="route-summary-info">
+            <Route size={18} color="#a78bfa" />
+            <span>
+              <strong>Estimated Route:</strong> {pickupArea} → {deliveryArea}
+            </span>
+          </div>
+          <div className="route-distance-pill">
+            ~{routeDistance.toFixed(2)} km
           </div>
         </div>
 
-        <div className="coordinate-section">
-          <h4>Delivery location</h4>
-          <div className="coordinate-grid">
-            <label className="form-field">
-              <span>Latitude</span>
-              <input
-                name="deliveryLatitude"
-                type="number"
-                min="-90"
-                max="90"
-                step="any"
-                value={form.deliveryLatitude}
-                onChange={updateField}
-                required
-              />
-            </label>
-
-            <label className="form-field">
-              <span>Longitude</span>
-              <input
-                name="deliveryLongitude"
-                type="number"
-                min="-180"
-                max="180"
-                step="any"
-                value={form.deliveryLongitude}
-                onChange={updateField}
-                required
-              />
-            </label>
-          </div>
-        </div>
-
+        {/* Priority */}
         <label className="form-field full-width">
-          <span>Priority</span>
-          <select name="priority" value={form.priority} onChange={updateField}>
-            <option value="NORMAL">Normal</option>
-            <option value="HIGH">High</option>
+          <span>Delivery Priority</span>
+          <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+            <option value="NORMAL">Normal Priority</option>
+            <option value="HIGH">High Priority</option>
+            <option value="URGENT">Urgent Priority</option>
           </select>
         </label>
 
@@ -205,7 +546,7 @@ export default function CreateOrderForm({ onClose, onSubmit, submitting }) {
             className="primary-button"
             disabled={submitting}
           >
-            {submitting ? "Creating order…" : "Create order"}
+            {submitting ? "Creating Order…" : "Create Order"}
           </button>
         </div>
       </form>
