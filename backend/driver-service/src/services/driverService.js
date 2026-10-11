@@ -278,6 +278,36 @@ async function updateHeartbeat(driverId) {
     );
 }
 
+async function syncAvailableDrivers() {
+    try {
+        const availableDrivers = await driverRepository.findAvailable();
+        for (const driver of availableDrivers) {
+            await redisClient.sAdd("drivers:available", driver.driver_id);
+            await redisClient.hSet(`driver:${driver.driver_id}`, {
+                driverId: driver.driver_id,
+                status: DRIVER_STATUS.AVAILABLE,
+                zoneId: driver.zone_id || "",
+                updatedAt: new Date().toISOString(),
+            });
+            if (driver.zone_id) {
+                await redisClient.sAdd(
+                    `drivers:available:${driver.zone_id}`,
+                    driver.driver_id
+                );
+            }
+        }
+        console.log(
+            `✅ Synced ${availableDrivers.length} available drivers to Redis`
+        );
+        return availableDrivers;
+    } catch (error) {
+        console.error(
+            "Failed to sync available drivers to Redis:",
+            error.message
+        );
+    }
+}
+
 module.exports = {
     createDriver,
     getDriver,
@@ -285,4 +315,6 @@ module.exports = {
     getAvailableDrivers,
     updateDriverStatus,
     updateHeartbeat,
+    syncAvailableDrivers,
 };
+

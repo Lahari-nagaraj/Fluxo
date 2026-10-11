@@ -25,6 +25,10 @@ async function startServer() {
 
         console.log("Redis connected");
 
+        // Sync currently available drivers to Redis
+        const driverService = require("./services/driverService");
+        await driverService.syncAvailableDrivers();
+
         // 3. Connect to Kafka
         await connectKafka();
 

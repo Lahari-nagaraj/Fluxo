@@ -95,12 +95,8 @@ async function updateLocation(data) {
         updatedAt: new Date().toISOString(),
     });
 
-    // 5. Location becomes stale if no new update
-    //    is received within 60 seconds.
-    await redisClient.expire(
-        locationKey,
-        60
-    );
+    // 5. Driver location is persisted in Redis without expiration
+    //    so current location remains available for dispatch.
 
     if (
         driverState.status === "AVAILABLE" &&
@@ -223,3 +219,4 @@ module.exports = {
     getDriverLocation,
     getNearbyDrivers,
 };
+

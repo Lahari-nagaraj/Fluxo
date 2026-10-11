@@ -36,9 +36,10 @@ async function recoverWaitingOrders(zoneId) {
     recoveryInProgress = true;
 
     try {
+        const allZones = await getWaitingZones();
         const zones = zoneId
-            ? [zoneId]
-            : await getWaitingZones();
+            ? [zoneId, ...allZones.filter((z) => z !== zoneId)]
+            : allZones;
 
         for (const waitingZoneId of zones) {
             const waitingOrders =

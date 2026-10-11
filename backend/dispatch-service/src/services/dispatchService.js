@@ -21,29 +21,13 @@ const {
     removeWaitingOrder,
 } = require("../clients/redisClient");
 
-const LOCATION_TTL_SECONDS = 60;
-const LOCATION_CLOCK_SKEW_MS = 5_000;
-
-function hasFreshLocation(location, ttl, expectedZoneId) {
+function hasValidLocation(location) {
     if (
         !location ||
         location.latitude === undefined ||
         location.latitude === "" ||
         location.longitude === undefined ||
-        location.longitude === "" ||
-        !Number.isInteger(ttl) ||
-        (ttl <= 0 && ttl !== -1)
-    ) {
-        return false;
-    }
-
-    const updatedAt = Date.parse(location.updatedAt);
-    const ageMs = Date.now() - updatedAt;
-
-    if (
-        !Number.isFinite(updatedAt) ||
-        ageMs < -LOCATION_CLOCK_SKEW_MS ||
-        ageMs > LOCATION_TTL_SECONDS * 1000
+        location.longitude === ""
     ) {
         return false;
     }
@@ -51,12 +35,11 @@ function hasFreshLocation(location, ttl, expectedZoneId) {
     const latitude = Number(location.latitude);
     const longitude = Number(location.longitude);
 
-    return (
-        Number.isFinite(latitude) &&
-        Number.isFinite(longitude) &&
-        getZoneId(latitude, longitude) === expectedZoneId &&
-        location.zoneId === expectedZoneId
-    );
+    return Number.isFinite(latitude) && Number.isFinite(longitude);
+}
+
+function hasFreshLocation(location) {
+    return hasValidLocation(location);
 }
 
 function isEligibleOrder(order) {
@@ -151,96 +134,112 @@ async function dispatchOrder(orderId) {
             order.status = "SEARCHING_DRIVER";
         }
 
-        const availableDriverIds =
-            await redisClient.sMembers(
-                `drivers:available:${pickupZoneId}`
-            );
+        // 1. Gather available drivers: check specific zone set and global available set (inter-zone)
+        let zoneDrivers = pickupZoneId
+            ? await redisClient.sMembers(`drivers:available:${pickupZoneId}`)
+            : [];
+        let allAvailable =
+            await redisClient.sMembers("drivers:available");
+
+        let availableDriverIds = Array.from(
+            new Set([...zoneDrivers, ...allAvailable])
+        );
+
+        // Fallback: If Redis has 0 available drivers, query Driver Service and populate Redis
+        if (availableDriverIds.length === 0) {
+            try {
+                const driversFromService = await driverClient.getAvailableDrivers();
+                if (Array.isArray(driversFromService) && driversFromService.length > 0) {
+                    for (const d of driversFromService) {
+                        availableDriverIds.push(d.driver_id);
+                        await redisClient.sAdd("drivers:available", d.driver_id);
+                        await redisClient.hSet(`driver:${d.driver_id}`, {
+                            driverId: d.driver_id,
+                            status: "AVAILABLE",
+                            zoneId: d.zone_id || "",
+                        });
+                        if (d.zone_id) {
+                            await redisClient.sAdd(
+                                `drivers:available:${d.zone_id}`,
+                                d.driver_id
+                            );
+                        }
+                    }
+                }
+            } catch (fallbackErr) {
+                console.warn(
+                    "Fallback to driver service failed:",
+                    fallbackErr.message
+                );
+            }
+        }
 
         console.log(
-            `Found ${availableDriverIds.length} available drivers in zone ${pickupZoneId}`
+            `Found ${availableDriverIds.length} available drivers for dispatch in/around zone ${pickupZoneId}`
         );
+
+        const pickupLatitude = Number(order.pickup_latitude);
+        const pickupLongitude = Number(order.pickup_longitude);
 
         const candidates = [];
 
         for (const driverId of availableDriverIds) {
             const driverState =
-                await redisClient.hGetAll(
-                    `driver:${driverId}`
-                );
+                await redisClient.hGetAll(`driver:${driverId}`);
 
-            if (driverState.status !== "AVAILABLE") {
-                await redisClient.sRem(
-                    `drivers:available:${pickupZoneId}`,
-                    driverId
-                );
-
+            if (driverState && driverState.status && driverState.status !== "AVAILABLE") {
+                await redisClient.sRem("drivers:available", driverId);
+                if (pickupZoneId) {
+                    await redisClient.sRem(
+                        `drivers:available:${pickupZoneId}`,
+                        driverId
+                    );
+                }
                 continue;
             }
 
-            const locationKey =
-                `driver:location:${driverId}`;
+            const locationKey = `driver:location:${driverId}`;
+            let location = await redisClient.hGetAll(locationKey);
 
-            let location =
-                await redisClient.hGetAll(locationKey);
+            let driverLatitude = (location && location.latitude !== undefined && location.latitude !== "")
+                ? Number(location.latitude)
+                : NaN;
+            let driverLongitude = (location && location.longitude !== undefined && location.longitude !== "")
+                ? Number(location.longitude)
+                : NaN;
 
-            let locationTtl =
-                await redisClient.ttl(locationKey);
-
-            if (!location || !location.latitude || !hasFreshLocation(location, locationTtl, pickupZoneId)) {
+            // If location not in Redis or invalid, fetch current location from Location Service at this time!
+            if (!Number.isFinite(driverLatitude) || !Number.isFinite(driverLongitude)) {
                 try {
                     const fallback = await locationClient.getDriverLocation(driverId);
                     if (fallback && fallback.latitude !== undefined && fallback.longitude !== undefined) {
                         const fbLat = Number(fallback.latitude);
                         const fbLng = Number(fallback.longitude);
-                        const fbZone = fallback.zone_id || getZoneId(fbLat, fbLng);
-                        if (fbZone === pickupZoneId) {
+                        if (Number.isFinite(fbLat) && Number.isFinite(fbLng)) {
+                            driverLatitude = fbLat;
+                            driverLongitude = fbLng;
+                            const fbZone = fallback.zone_id || getZoneId(fbLat, fbLng);
                             location = {
                                 latitude: String(fbLat),
                                 longitude: String(fbLng),
                                 zoneId: fbZone,
                                 updatedAt: fallback.updated_at || new Date().toISOString(),
                             };
-                            locationTtl = 60;
+                            // Persist in Redis without 60s TTL
                             await redisClient.hSet(locationKey, location);
-                            await redisClient.expire(locationKey, 60);
                         }
                     }
                 } catch (err) {
-                    // Fallback to location service not available or not found
+                    // Location service lookup failed or driver has no recorded location
                 }
             }
 
-            if (
-                location.latitude === undefined ||
-                location.latitude === "" ||
-                location.longitude === undefined ||
-                location.longitude === ""
-            ) {
+            if (!Number.isFinite(driverLatitude) || !Number.isFinite(driverLongitude)) {
                 console.warn(
-                    `No cached location for driver ${driverId}. Waiting for location update.`
+                    `No cached or current location for driver ${driverId}. Waiting for location update.`
                 );
-
                 continue;
             }
-
-            if (
-                !hasFreshLocation(
-                    location,
-                    locationTtl,
-                    pickupZoneId
-                )
-            ) {
-                console.warn(
-                    `Skipping driver ${driverId}: cached location is stale or outside zone ${pickupZoneId}.`
-                );
-
-                continue;
-            }
-
-            const driverLatitude = Number(location.latitude);
-            const driverLongitude = Number(location.longitude);
-            const pickupLatitude = Number(order.pickup_latitude);
-            const pickupLongitude = Number(order.pickup_longitude);
 
             if (
                 !Number.isFinite(pickupLatitude) ||
@@ -249,6 +248,7 @@ async function dispatchOrder(orderId) {
                 continue;
             }
 
+            // Inter-geolocational distance calculation: find distance to pickup regardless of zone
             candidates.push({
                 driverId,
                 distance: calculateDistanceKm(
@@ -257,9 +257,13 @@ async function dispatchOrder(orderId) {
                     driverLatitude,
                     driverLongitude
                 ),
+                latitude: driverLatitude,
+                longitude: driverLongitude,
+                zoneId: location?.zoneId,
             });
         }
 
+        // Sort candidates so the nearest driver is assigned first
         candidates.sort((left, right) =>
             left.distance - right.distance
         );
@@ -286,6 +290,25 @@ async function dispatchOrder(orderId) {
 
                 driverMarkedBusy = true;
 
+                // Immediately update Redis availability sets and driver state
+                await redisClient.sRem("drivers:available", candidate.driverId);
+                if (candidate.zoneId) {
+                    await redisClient.sRem(
+                        `drivers:available:${candidate.zoneId}`,
+                        candidate.driverId
+                    );
+                }
+                if (pickupZoneId) {
+                    await redisClient.sRem(
+                        `drivers:available:${pickupZoneId}`,
+                        candidate.driverId
+                    );
+                }
+                await redisClient.hSet(`driver:${candidate.driverId}`, {
+                    status: "BUSY",
+                    updatedAt: new Date().toISOString(),
+                });
+
                 await orderClient.updateOrderStatus(
                     orderId,
                     "ASSIGNED"
@@ -296,7 +319,7 @@ async function dispatchOrder(orderId) {
                 await removeFromWaiting(order);
 
                 console.log(
-                    `✅ Order ${orderId} assigned to driver ${candidate.driverId}`
+                    `✅ Order ${orderId} assigned to nearest driver ${candidate.driverId} (${candidate.distance.toFixed(2)} km away)`
                 );
 
                 return {
@@ -357,6 +380,17 @@ async function dispatchOrder(orderId) {
                             candidate.driverId,
                             "AVAILABLE"
                         );
+                        await redisClient.sAdd("drivers:available", candidate.driverId);
+                        if (candidate.zoneId) {
+                            await redisClient.sAdd(
+                                `drivers:available:${candidate.zoneId}`,
+                                candidate.driverId
+                            );
+                        }
+                        await redisClient.hSet(`driver:${candidate.driverId}`, {
+                            status: "AVAILABLE",
+                            updatedAt: new Date().toISOString(),
+                        });
                     } catch (compensationError) {
                         console.error(
                             `Failed to release driver ${candidate.driverId} after assignment failure:`,
@@ -370,9 +404,21 @@ async function dispatchOrder(orderId) {
                     !driverMarkedBusy
                 ) {
                     await redisClient.sRem(
-                        `drivers:available:${pickupZoneId}`,
+                        "drivers:available",
                         candidate.driverId
                     );
+                    if (candidate.zoneId) {
+                        await redisClient.sRem(
+                            `drivers:available:${candidate.zoneId}`,
+                            candidate.driverId
+                        );
+                    }
+                    if (pickupZoneId) {
+                        await redisClient.sRem(
+                            `drivers:available:${pickupZoneId}`,
+                            candidate.driverId
+                        );
+                    }
 
                     continue;
                 }

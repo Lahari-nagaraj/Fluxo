@@ -57,10 +57,7 @@ describe("Location Service zone indexing", () => {
                 updatedAt: expect.any(String),
             })
         );
-        expect(redisClient.expire).toHaveBeenCalledWith(
-            "driver:location:driver-1",
-            60
-        );
+
         expect(redisClient.sRem).toHaveBeenCalledWith(
             "drivers:available:ZONE_A",
             "driver-1"
