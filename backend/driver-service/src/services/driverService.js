@@ -11,6 +11,10 @@ const {
     VEHICLE_TYPE,
 } = require("../models/driverModel");
 
+const {
+    publishDriverAvailable,
+} = require("../config/kafka");
+
 const VALID_STATUS_TRANSITIONS = {
     [DRIVER_STATUS.OFFLINE]: [
         DRIVER_STATUS.AVAILABLE,
@@ -223,7 +227,17 @@ async function updateDriverStatus(
         }
     }
 
-    // 8. Return updated driver
+    // 8. Publish DriverAvailable event to Kafka
+    if (
+        newStatus ===
+        DRIVER_STATUS.AVAILABLE
+    ) {
+        await publishDriverAvailable(
+            updatedDriver
+        );
+    }
+
+    // 9. Return updated driver
     return updatedDriver;
 }
 

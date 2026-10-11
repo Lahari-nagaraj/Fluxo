@@ -7,8 +7,11 @@ const {
 
 const {
     redisClient,
+    reserveDriver,
+    releaseDriverReservation,
+    addWaitingOrder,
+    removeWaitingOrder,
 } = require("../clients/redisClient");
-
 
 async function dispatchOrder(orderId) {
     console.log(`Dispatching order ${orderId}...`);
@@ -24,6 +27,7 @@ async function dispatchOrder(orderId) {
     } catch (error) {
         // A stale Kafka event for an already deleted/non-existent
         // order is not something we should retry forever.
+
         if (error.response?.status === 404) {
             console.warn(
                 `Order ${orderId} no longer exists. Skipping stale event.`
@@ -137,6 +141,11 @@ async function dispatchOrder(orderId) {
             `No available drivers in zone ${pickupZoneId} for order ${orderId}`
         );
 
+        await addWaitingOrder(
+            orderId,
+            pickupZoneId
+        );
+
         return {
             status: "WAITING_FOR_DRIVER",
             reason: "NO_DRIVER_IN_ZONE",
@@ -157,8 +166,7 @@ async function dispatchOrder(orderId) {
         // Verify current driver state
         // ----------------------------------------------
 
-        const driverKey =
-            `driver:${driverId}`;
+        const driverKey = `driver:${driverId}`;
 
         const driverState =
             await redisClient.hGetAll(driverKey);
@@ -277,6 +285,11 @@ async function dispatchOrder(orderId) {
             `No drivers with valid cached locations in zone ${pickupZoneId} for order ${orderId}`
         );
 
+        await addWaitingOrder(
+            orderId,
+            pickupZoneId
+        );
+
         return {
             status: "WAITING_FOR_DRIVER",
             reason: "NO_VALID_DRIVER_LOCATION",
@@ -292,6 +305,35 @@ async function dispatchOrder(orderId) {
     // --------------------------------------------------
     // 9. Reserve driver
     // --------------------------------------------------
+
+    const reservationAcquired =
+        await reserveDriver(
+            nearestDriver.driverId,
+            orderId,
+            30
+        );
+
+    if (!reservationAcquired) {
+        console.warn(
+            `Driver ${nearestDriver.driverId} was reserved by another order. Searching for another driver.`
+        );
+
+        await addWaitingOrder(
+            orderId,
+            pickupZoneId
+        );
+
+        return {
+            status: "WAITING_FOR_DRIVER",
+            reason: "DRIVER_RESERVATION_FAILED",
+            orderId,
+            zoneId: pickupZoneId,
+        };
+    }
+
+    console.log(
+        `🔒 Driver ${nearestDriver.driverId} reserved for order ${orderId}`
+    );
 
     try {
         console.log(
@@ -320,6 +362,15 @@ async function dispatchOrder(orderId) {
             `✅ Order ${orderId} assigned to driver ${nearestDriver.driverId}`
         );
 
+        await releaseDriverReservation(
+            nearestDriver.driverId,
+            orderId
+        );
+
+        console.log(
+            `🔓 Driver reservation released for ${nearestDriver.driverId}`
+        );
+
         return {
             status: "ASSIGNED",
             orderId,
@@ -331,7 +382,7 @@ async function dispatchOrder(orderId) {
         // 11. Compensation
         //
         // If driver became BUSY but order assignment failed,
-        // release the driver back to AVAILABLE.
+        // release the reservation and driver back to AVAILABLE.
         // --------------------------------------------------
 
         console.error(
@@ -340,6 +391,11 @@ async function dispatchOrder(orderId) {
         );
 
         try {
+            await releaseDriverReservation(
+                nearestDriver.driverId,
+                orderId
+            );
+
             const latestOrder =
                 await orderClient.getOrder(orderId);
 
@@ -367,7 +423,6 @@ async function dispatchOrder(orderId) {
         throw error;
     }
 }
-
 
 module.exports = {
     dispatchOrder,

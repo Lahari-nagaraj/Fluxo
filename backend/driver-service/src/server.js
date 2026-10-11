@@ -7,6 +7,10 @@ const {
     connectRedis,
 } = require("./clients/redisClient");
 
+const {
+    connectKafka,
+} = require("./config/kafka");
+
 const PORT = process.env.PORT || 3002;
 
 async function startServer() {
@@ -21,7 +25,12 @@ async function startServer() {
 
         console.log("Redis connected");
 
-        // 3. Start HTTP server
+        // 3. Connect to Kafka
+        await connectKafka();
+
+        console.log("Kafka connected");
+
+        // 4. Start HTTP server
         app.listen(PORT, () => {
             console.log(
                 `Driver service running on port ${PORT}`
