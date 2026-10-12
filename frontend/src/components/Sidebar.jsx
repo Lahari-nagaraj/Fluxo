@@ -24,8 +24,8 @@ export default function Sidebar({ activePage, onNavigate }) {
           <Zap size={23} />
         </div>
         <div>
-          <h2>fluxo</h2>
-          <span>DELIVERY SYSTEMS</span>
+          <h2>Fluxo</h2>
+          <span>DELIVERY SYSTEM</span>
         </div>
       </div>
 
