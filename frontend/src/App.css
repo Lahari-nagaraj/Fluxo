@@ -840,6 +840,7 @@ p {
 }
 
 .status-in_transit,
+.status-pickup,
 .status-picked_up {
     color: #93c5fd;
     background: #192a3c;
@@ -847,6 +848,7 @@ p {
 }
 
 .status-in_transit .status-dot,
+.status-pickup .status-dot,
 .status-picked_up .status-dot {
     background: #60a5fa;
 }
@@ -1249,4 +1251,51 @@ p {
     border-radius: 4px;
     color: #38bdf8;
     font-weight: 600;
+}
+
+/* Driver Portal Page Container */
+.driver-portal-page-container {
+    width: 100%;
+    min-width: 0;
+}
+
+/* Comprehensive Responsive Enhancements */
+@media (max-width: 600px) {
+    .assignment-alert-toast {
+        left: 14px;
+        right: 14px;
+        bottom: 14px;
+        max-width: none;
+    }
+
+    .orders-page-actions {
+        width: 100%;
+    }
+
+    .orders-page-actions .primary-button {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+@media (max-width: 540px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .stat-card {
+        padding: 16px;
+    }
+
+    .page-content {
+        padding: 16px 12px;
+    }
+
+    .welcome-row h1 {
+        font-size: 22px;
+    }
+
+    .topbar {
+        padding: 0 12px;
+    }
 }

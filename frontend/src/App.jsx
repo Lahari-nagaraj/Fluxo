@@ -70,20 +70,20 @@ export default function App() {
   ).length;
 
   const activeDeliveries = orders.filter((order) =>
-    ["ASSIGNED", "PICKED_UP", "IN_TRANSIT"].includes(order.status)
+    ["ASSIGNED", "PICKUP", "PICKED_UP", "IN_TRANSIT"].includes(order.status)
   ).length;
 
-  // Pop-up alert reminder whenever any order with saved door instructions is assigned to a driver
+  // Show notification or alert ONCE when order with location and door notes is in PICKUP
   useEffect(() => {
     for (const order of orders) {
       if (
         order.driver_id &&
         order.delivery_instructions &&
-        ["ASSIGNED", "PICKED_UP", "IN_TRANSIT"].includes(order.status)
+        (order.status === "PICKUP" || order.status === "PICKED_UP")
       ) {
-        const key = `${order.order_id}_${order.driver_id}`;
-        if (!seenAssignmentsRef.current.has(key)) {
-          seenAssignmentsRef.current.add(key);
+        const key = `fluxo_door_alert_shown_${order.order_id}`;
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, "true");
           setAssignmentAlert({
             orderId: order.order_id,
             driverId: order.driver_id,
@@ -91,11 +91,11 @@ export default function App() {
             instructions: order.delivery_instructions,
           });
 
-          // Trigger browser alert popup as requested
+          // Trigger browser alert popup once when driver state is in pickup
           setTimeout(() => {
             window.alert(
               `🔔 REACH-THE-DOOR REMINDER ALERT!\n\n` +
-              `Driver ${order.driver_id} has been assigned to location: ${order.location_id || "Saved Destination"}\n\n` +
+              `Driver ${order.driver_id} is in PICKUP for location: ${order.location_id || "Saved Destination"}\n\n` +
               `Stored Reach-The-Door Directions:\n"${order.delivery_instructions}"\n\n` +
               `Order ID: ${order.order_id}`
             );
@@ -209,7 +209,7 @@ export default function App() {
                 <StatCard
                   title="Active deliveries"
                   value={loading ? "…" : activeDeliveries}
-                  description="Assigned, picked up, or in transit"
+                  description="Assigned, pickup, or in transit"
                   icon={MapPinned}
                   accent="blue"
                 />
@@ -397,6 +397,19 @@ export default function App() {
             </section>
           )}
 
+          {/* Keep DriverPortal mounted when switching dashboard pages.
+              This prevents its cleanup effect from stopping location sharing
+              just because another page is selected. */}
+          <div
+            className="driver-portal-page-container"
+            style={{
+              display:
+                activePage === "Driver Portal" ? "block" : "none",
+            }}
+          >
+            <DriverPortal orders={orders} onRefreshOrders={refresh} />
+          </div>
+
           <footer className="page-footer">
             <span>
               FLUXO DELIVERY ORCHESTRATION PLATFORM
@@ -408,18 +421,6 @@ export default function App() {
           </footer>
         </div>
       </main>
-
-      {/* Keep DriverPortal mounted when switching dashboard pages.
-          This prevents its cleanup effect from stopping location sharing
-          just because another page is selected. */}
-      <div
-        style={{
-          display:
-            activePage === "Driver Portal" ? "block" : "none",
-        }}
-      >
-        <DriverPortal orders={orders} onRefreshOrders={refresh} />
-      </div>
 
       {/* Floating Reach-the-Door Assignment Reminder Toast */}
       {assignmentAlert && (

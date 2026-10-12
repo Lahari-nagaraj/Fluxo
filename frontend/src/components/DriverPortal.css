@@ -231,66 +231,67 @@
   border-color: #a78bfa;
 }
 
-.driver-auth-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 20px;
-}
-
-.existing-drivers-list {
+.no-driver-banner {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: 280px;
-  overflow-y: auto;
-}
-
-.select-driver-btn {
-  display: flex;
   align-items: center;
+  justify-content: center;
+  text-align: center;
   gap: 12px;
-  padding: 10px 14px;
-  background: #141824;
-  border: 1px solid #282f42;
-  border-radius: 8px;
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.2s ease;
+  padding: 42px 20px;
+  background: #0f121d;
+  border: 1px dashed #2e3650;
+  border-radius: 14px;
 }
 
-.select-driver-btn:hover {
-  background: #1a2236;
-  border-color: #7c68cb;
-  transform: translateX(3px);
+.no-driver-banner h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #f1f5f9;
 }
 
-.select-driver-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #2a2444;
-  border: 1px solid #58478a;
-  color: #c4b5fd;
-  display: grid;
-  place-items: center;
-  font-weight: 700;
-  font-size: 15px;
+.no-driver-banner p {
+  margin: 0;
+  font-size: 13px;
+  color: #94a3b8;
+  max-width: 480px;
+  line-height: 1.6;
 }
 
-.select-driver-info {
+/* DOWNSIDE REGISTER DRIVER SECTION */
+.register-driver-card {
+  margin-top: 10px;
+  background: linear-gradient(180deg, #121522 0%, #0d101a 100%);
+  border: 1px solid #28304a;
+  border-radius: 14px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.register-driver-form {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 20px;
+  margin-top: 4px;
 }
 
-.select-driver-info strong {
-  color: #f1f5f9;
-  font-size: 14px;
+.register-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
 }
 
-.select-driver-info span {
-  color: #94a3b8;
-  font-size: 11px;
+.register-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #c5c8d6;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.register-form-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .driver-portal-layout {
@@ -331,6 +332,7 @@
   border: 1px solid #4338ca;
 }
 
+.order-status-badge.status-pickup,
 .order-status-badge.status-picked_up {
   background: #2e1065;
   color: #d8b4fe;
@@ -654,11 +656,54 @@
   .driver-portal-grid {
     grid-template-columns: 1fr;
   }
+
+  .register-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .register-form-actions {
+    justify-content: stretch;
+  }
+
+  .register-form-actions button {
+    width: 100%;
+  }
+
+  .lookup-form {
+    flex-direction: column;
+  }
+
+  .lookup-btn {
+    width: 100%;
+  }
 }
 
 @media (max-width: 520px) {
   .driver-portal-card {
-    padding: 17px;
+    padding: 16px;
+  }
+
+  .driver-portal-coordinates {
+    grid-template-columns: 1fr;
+  }
+
+  .door-alert-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .door-alert-icon-title h4 {
+    font-size: 12px;
+  }
+
+  .driver-heading-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .driver-switch-btn {
+    width: 100%;
   }
 }
 

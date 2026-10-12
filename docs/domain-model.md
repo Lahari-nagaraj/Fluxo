@@ -45,7 +45,7 @@ Represents a delivery request created by a customer.
 - CREATED
 - SEARCHING_DRIVER
 - ASSIGNED
-- PICKED_UP
+- PICKUP
 - IN_TRANSIT
 - DELIVERED
 - CANCELLED
@@ -70,7 +70,7 @@ Represents the actual execution of an order.
 ### Delivery Status
 
 - CREATED
-- PICKED_UP
+- PICKUP
 - IN_TRANSIT
 - COMPLETED
 - FAILED

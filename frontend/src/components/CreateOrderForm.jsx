@@ -6,9 +6,8 @@ import {
   Navigation,
   LocateFixed,
   Route,
-  ChevronDown,
-  ChevronUp,
-  Check,
+  Bell,
+  Sparkles,
 } from "lucide-react";
 import {
   BENGALURU_LOCALITIES,
@@ -19,7 +18,6 @@ import {
   toLocationId,
 } from "../utils/locations";
 import { orderApi } from "../services/api";
-import { Bell, KeyRound, Sparkles } from "lucide-react";
 import "./CreateOrderForm.css";
 
 const POPULAR_PICKUP_CHIPS = [

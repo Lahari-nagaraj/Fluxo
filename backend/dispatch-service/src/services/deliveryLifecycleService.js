@@ -16,7 +16,7 @@ function getRandomInt(min, max) {
 
 /**
  * Executes the full lifecycle progression for an assigned order:
- * 1. Picks random pickup time (2-5 minutes) and updates state to PICKED_UP
+ * 1. Picks random pickup time (2-5 minutes) and updates state to PICKUP
  * 2. Waits for that duration, then picks random in-transit time (10-12 minutes) and updates state to IN_TRANSIT
  * 3. Waits for that duration, then updates state to DELIVERED
  * 4. Brings the driver back to Redis and AVAILABLE state, ready for next orders
@@ -86,13 +86,13 @@ function startDeliveryLifecycle(orderId, driverId) {
 
             console.log(
                 `⏱️ [Delivery] Order ${orderId} assigned to driver ${driverId}.\n` +
-                `   → Updating state to PICKED_UP.\n` +
+                `   → Updating state to PICKUP.\n` +
                 `   → Holding in pickup for ${pickupMinutes} minutes (${(pickupDurationMs / 1000).toFixed(1)}s in simulation)...`
             );
 
             // Update order status in Order Service
-            await orderClient.updateOrderStatus(orderId, "PICKED_UP");
-            deliveryRecord.currentStatus = "PICKED_UP";
+            await orderClient.updateOrderStatus(orderId, "PICKUP");
+            deliveryRecord.currentStatus = "PICKUP";
 
             // Mark driver ON_DELIVERY (BUSY -> ON_DELIVERY is valid in driver service)
             try {
@@ -103,8 +103,9 @@ function startDeliveryLifecycle(orderId, driverId) {
 
             // Update Redis state
             await redisClient.hSet(`assignment:${orderId}`, {
-                status: "PICKED_UP",
+                status: "PICKUP",
                 pickupMinutes: String(pickupMinutes),
+                pickupAt: new Date().toISOString(),
                 pickedUpAt: new Date().toISOString(),
             });
 

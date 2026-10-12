@@ -9,9 +9,7 @@ import {
   Save,
   Package,
   CheckCircle2,
-  Navigation,
   Sparkles,
-  RefreshCw,
 } from "lucide-react";
 import { driverApi, locationApi, orderApi } from "../services/api";
 import "./DriverPortal.css";
@@ -21,7 +19,6 @@ export default function DriverPortal({ orders = [], onRefreshOrders }) {
   const [phone, setPhone] = useState("");
   const [vehicleType, setVehicleType] = useState("BIKE");
   const [driver, setDriver] = useState(null);
-  const [existingDrivers, setExistingDrivers] = useState([]);
   const [location, setLocation] = useState(null);
   const [sharing, setSharing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -99,7 +96,10 @@ export default function DriverPortal({ orders = [], onRefreshOrders }) {
 
       setDriver(created);
       driverRef.current = created;
-      setMessage("Registration successful. Share your location to continue.");
+      localStorage.setItem("fluxo_active_driver_id", created.driver_id);
+      setName("");
+      setPhone("");
+      setMessage(`Driver ${created.name} registered successfully. Share your location to continue.`);
     } catch (err) {
       setError(
         err.response?.data?.message ||
@@ -259,34 +259,43 @@ export default function DriverPortal({ orders = [], onRefreshOrders }) {
     }
   }
 
-  // Fetch registered drivers to allow quick selection/login
+  // Load registered drivers on initial mount and auto-select active driver
   useEffect(() => {
-    async function loadExistingDrivers() {
+    async function initDriver() {
       try {
         const res = await driverApi.getAll();
-        if (res.data?.data) {
-          setExistingDrivers(res.data.data);
+        const list = res.data?.data || [];
+        if (list.length > 0) {
+          const savedId = localStorage.getItem("fluxo_active_driver_id");
+          const found = savedId ? list.find((d) => d.driver_id === savedId) : null;
+          const chosen = found || list[0];
+          setDriver(chosen);
+          driverRef.current = chosen;
         }
       } catch {
         // non-critical
       }
     }
-    loadExistingDrivers();
+    initDriver();
   }, []);
 
   // Find active order assigned to this driver
   const activeOrder = orders?.find(
     (o) =>
       o.driver_id === driver?.driver_id &&
-      ["ASSIGNED", "PICKED_UP", "IN_TRANSIT"].includes(o.status)
+      ["ASSIGNED", "PICKUP", "PICKED_UP", "IN_TRANSIT"].includes(o.status)
   );
 
-  // Trigger browser alert reminder as soon as order with saved instructions is assigned to this driver
-  const alertedOrderRef = useRef(null);
+  // Trigger browser alert reminder ONCE when order with saved instructions is in PICKUP
   useEffect(() => {
-    if (activeOrder && activeOrder.delivery_instructions) {
-      if (alertedOrderRef.current !== activeOrder.order_id) {
-        alertedOrderRef.current = activeOrder.order_id;
+    if (
+      activeOrder &&
+      activeOrder.delivery_instructions &&
+      (activeOrder.status === "PICKUP" || activeOrder.status === "PICKED_UP")
+    ) {
+      const storageKey = `fluxo_door_alert_shown_${activeOrder.order_id}`;
+      if (!sessionStorage.getItem(storageKey)) {
+        sessionStorage.setItem(storageKey, "true");
         setTimeout(() => {
           window.alert(
             `🔔 REACH-THE-DOOR REMINDER FOR DRIVER!\n\n` +
@@ -353,7 +362,7 @@ export default function DriverPortal({ orders = [], onRefreshOrders }) {
             <span className="driver-portal-eyebrow">DRIVER WORKSPACE</span>
             <h2>Driver Portal</h2>
             <p>
-              Register or select a driver, share GPS coordinates, and view reach-the-door instructions.
+              Share GPS coordinates, receive deliveries, and view reach-the-door instructions.
             </p>
           </div>
 
@@ -365,6 +374,8 @@ export default function DriverPortal({ orders = [], onRefreshOrders }) {
                 stopSharing();
                 setDriver(null);
                 driverRef.current = null;
+                localStorage.removeItem("fluxo_active_driver_id");
+                setMessage("Driver logged out. You can register a new driver below.");
               }}
             >
               Switch / Logout Driver
@@ -385,94 +396,7 @@ export default function DriverPortal({ orders = [], onRefreshOrders }) {
         </div>
       )}
 
-      {!driver ? (
-        <div className="driver-auth-container">
-          {/* Quick Select Existing Registered Driver */}
-          {existingDrivers.length > 0 && (
-            <div className="driver-portal-card existing-drivers-card">
-              <div className="driver-portal-card-title">
-                <Navigation size={20} />
-                <h3>Select Existing Driver</h3>
-              </div>
-              <p className="driver-portal-help">
-                Choose an active driver from PostgreSQL to monitor deliveries or update location:
-              </p>
-              <div className="existing-drivers-list">
-                {existingDrivers.map((d) => (
-                  <button
-                    key={d.driver_id}
-                    type="button"
-                    className="select-driver-btn"
-                    onClick={() => {
-                      setDriver(d);
-                      driverRef.current = d;
-                      setMessage(`Logged in as driver ${d.name} (${d.driver_id.slice(0, 8)}).`);
-                    }}
-                  >
-                    <div className="select-driver-avatar">
-                      {d.name?.charAt(0)?.toUpperCase() || "D"}
-                    </div>
-                    <div className="select-driver-info">
-                      <strong>{d.name}</strong>
-                      <span>{d.vehicle_type} · Status: {d.status}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Register New Driver Form */}
-          <form className="driver-portal-card" onSubmit={registerDriver}>
-            <div className="driver-portal-card-title">
-              <UserPlus size={20} />
-              <h3>Register as a new driver</h3>
-            </div>
-
-            <label>
-              Full name
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Enter your name"
-                required
-              />
-            </label>
-
-            <label>
-              Phone number
-              <input
-                value={phone}
-                onChange={(event) => setPhone(event.target.value)}
-                placeholder="Enter your phone number"
-                required
-              />
-            </label>
-
-            <label>
-              Vehicle type
-              <select
-                value={vehicleType}
-                onChange={(event) => setVehicleType(event.target.value)}
-              >
-                <option value="BIKE">Bike</option>
-                <option value="SCOOTER">Scooter</option>
-                <option value="CAR">Car</option>
-                <option value="VAN">Van</option>
-              </select>
-            </label>
-
-            <button
-              className="driver-portal-primary"
-              type="submit"
-              disabled={loading}
-            >
-              <UserPlus size={17} />
-              {loading ? "Registering..." : "Register driver"}
-            </button>
-          </form>
-        </div>
-      ) : (
+      {driver ? (
         <div className="driver-portal-layout">
           {/* ======================================================== */}
           {/* ACTIVE ASSIGNED DELIVERY & REACH-THE-DOOR CARD (FULL WIDTH) */}
@@ -733,7 +657,76 @@ export default function DriverPortal({ orders = [], onRefreshOrders }) {
             )}
           </section>
         </div>
+      ) : (
+        <div className="driver-portal-card no-driver-banner">
+          <UserPlus size={32} className="muted-icon" />
+          <h3>No Active Driver Selected</h3>
+          <p>
+            Please register a new driver below to start location tracking and delivery operations.
+          </p>
+        </div>
       )}
+
+      {/* ======================================================== */}
+      {/* REGISTER NEW DRIVER (DOWNSIDE SECTION) */}
+      {/* ======================================================== */}
+      <section className="driver-portal-card register-driver-card">
+        <div className="driver-portal-card-title">
+          <UserPlus size={20} />
+          <h3>Register as a new driver</h3>
+        </div>
+        <p className="driver-portal-help">
+          Create and onboard a new driver profile with real-time dispatch eligibility.
+        </p>
+
+        <form className="register-driver-form" onSubmit={registerDriver}>
+          <div className="register-form-grid">
+            <label>
+              Full name
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Enter full name"
+                required
+              />
+            </label>
+
+            <label>
+              Phone number
+              <input
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                placeholder="Enter phone number"
+                required
+              />
+            </label>
+
+            <label>
+              Vehicle type
+              <select
+                value={vehicleType}
+                onChange={(event) => setVehicleType(event.target.value)}
+              >
+                <option value="BIKE">Bike</option>
+                <option value="SCOOTER">Scooter</option>
+                <option value="CAR">Car</option>
+                <option value="VAN">Van</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="register-form-actions">
+            <button
+              className="driver-portal-primary"
+              type="submit"
+              disabled={loading}
+            >
+              <UserPlus size={17} />
+              {loading ? "Registering..." : "Register driver"}
+            </button>
+          </div>
+        </form>
+      </section>
     </section>
   );
 }

@@ -217,7 +217,7 @@ export async function resolveAddressToCoordinates(address) {
         };
       }
     }
-  } catch (err) {
+  } catch {
     // Geocoder network error or timeout; fallback gracefully
   }
 

@@ -23,12 +23,18 @@ const VALID_STATUS_TRANSITIONS = {
     ],
 
     [ORDER_STATUS.ASSIGNED]: [
-        ORDER_STATUS.PICKED_UP,
+        ORDER_STATUS.PICKUP,
+        "PICKUP",
+        "PICKED_UP",
         ORDER_STATUS.SEARCHING_DRIVER,
         ORDER_STATUS.CANCELLED,
     ],
 
-    [ORDER_STATUS.PICKED_UP]: [
+    [ORDER_STATUS.PICKUP]: [
+        ORDER_STATUS.IN_TRANSIT,
+    ],
+
+    "PICKED_UP": [
         ORDER_STATUS.IN_TRANSIT,
     ],
 
@@ -194,7 +200,7 @@ async function updateOrderStatus(orderId, newStatus) {
     const order = await getOrder(orderId);
 
     const allowedTransitions =
-        VALID_STATUS_TRANSITIONS[order.status];
+        VALID_STATUS_TRANSITIONS[order.status] || [];
 
     if (!allowedTransitions.includes(newStatus)) {
         const error = new Error(

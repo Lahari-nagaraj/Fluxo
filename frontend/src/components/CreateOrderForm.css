@@ -417,3 +417,41 @@
   }
 }
 
+@media (max-width: 520px) {
+  .create-order-panel {
+    border-radius: 8px;
+  }
+
+  .create-order-form {
+    padding: 12px;
+    gap: 14px;
+  }
+
+  .location-card {
+    padding: 12px;
+  }
+
+  .location-card-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .route-summary-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .location-id-badge {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .popular-chips-row {
+    gap: 5px;
+  }
+
+  .coord-inputs-row {
+    flex-direction: column;
+  }
+}
+

@@ -51,7 +51,7 @@ DriverReassigned
 
 DeliveryStarted
 
-DeliveryPickedUp
+DeliveryPickup
 
 DeliveryCompleted
 

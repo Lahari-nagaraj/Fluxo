@@ -39,7 +39,7 @@ describe("Delivery Lifecycle Service", () => {
         jest.clearAllMocks();
     });
 
-    test("progresses order through PICKED_UP -> IN_TRANSIT -> DELIVERED and restores driver to AVAILABLE", async () => {
+    test("progresses order through PICKUP -> IN_TRANSIT -> DELIVERED and restores driver to AVAILABLE", async () => {
         const orderId = "order-test-123";
         const driverId = "driver-test-456";
 
@@ -48,10 +48,10 @@ describe("Delivery Lifecycle Service", () => {
         // Wait enough time for simulated lifecycle to finish (max 5*10ms + 12*10ms = 170ms)
         await new Promise((resolve) => setTimeout(resolve, 300));
 
-        // 1. Verify PICKED_UP was called
+        // 1. Verify PICKUP was called
         expect(orderClient.updateOrderStatus).toHaveBeenCalledWith(
             orderId,
-            "PICKED_UP"
+            "PICKUP"
         );
 
         // 2. Verify IN_TRANSIT was called
