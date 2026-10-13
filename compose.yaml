@@ -1,0 +1,93 @@
+
+services:
+  order-service:
+    build: ./backend/order-service
+    env_file:
+      - ./backend/order-service/.env
+    environment:
+      PORT: "3001"
+      DB_HOST: fluxo-postgres
+      DB_PORT: "5432"
+      DB_NAME: delivery_platform
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KAFKA_BROKER: delivery-kafka:9092
+    networks:
+      - fluxo
+    restart: unless-stopped
+
+  driver-service:
+    build: ./backend/driver-service
+    env_file:
+      - ./backend/driver-service/.env
+    environment:
+      PORT: "3002"
+      DB_HOST: fluxo-postgres
+      DB_PORT: "5432"
+      DB_NAME: delivery_platform
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_URL: redis://delivery-redis:6379
+      KAFKA_BROKER: delivery-kafka:9092
+    networks:
+      - fluxo
+    restart: unless-stopped
+
+  location-service:
+    build: ./backend/location-service
+    env_file:
+      - ./backend/location-service/.env
+    environment:
+      PORT: "3003"
+      DB_HOST: fluxo-postgres
+      DB_PORT: "5432"
+      DB_NAME: delivery_platform
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_URL: redis://delivery-redis:6379
+    networks:
+      - fluxo
+    restart: unless-stopped
+
+  dispatch-service:
+    build: ./backend/dispatch-service
+    env_file:
+      - ./backend/dispatch-service/.env
+    environment:
+      PORT: "3004"
+      DRIVER_SERVICE_URL: http://driver-service:3002
+      LOCATION_SERVICE_URL: http://location-service:3003
+      ORDER_SERVICE_URL: http://order-service:3001
+      REDIS_URL: redis://delivery-redis:6379
+      KAFKA_BROKER: delivery-kafka:9092
+    depends_on:
+      - driver-service
+      - location-service
+      - order-service
+    networks:
+      - fluxo
+    restart: unless-stopped
+
+  api-gateway:
+    build: ./backend/api-gateway
+    env_file:
+      - ./backend/api-gateway/.env
+    environment:
+      PORT: "3000"
+      ORDER_SERVICE_URL: http://order-service:3001
+      DRIVER_SERVICE_URL: http://driver-service:3002
+      LOCATION_SERVICE_URL: http://location-service:3003
+    ports:
+      - "3000:3000"
+    depends_on:
+      - order-service
+      - driver-service
+      - location-service
+    networks:
+      - fluxo
+    restart: unless-stopped
+
+networks:
+  fluxo:
+    external: true
+    name: fluxo-network
