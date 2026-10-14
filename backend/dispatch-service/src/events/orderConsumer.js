@@ -10,7 +10,7 @@ async function startOrderConsumer() {
 
     await consumer.subscribe({
         topic: "orders",
-        fromBeginning: false,
+        fromBeginning: true,
     });
 
     console.log(

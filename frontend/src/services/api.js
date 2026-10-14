@@ -50,4 +50,11 @@ export const locationApi = {
   update: (location) => api.post("/locations", location),
 };
 
+export const dispatchApi = {
+  dispatchOrder: (orderId) => api.post(`/dispatch/orders/${orderId}/dispatch`),
+  getAssignments: () => api.get("/dispatch/assignments"),
+  getAssignment: (orderId) => api.get(`/dispatch/assignments/${orderId}`),
+  resetStuckDrivers: () => api.post("/dispatch/reset-stuck-drivers"),
+};
+
 export default api;

@@ -9,12 +9,23 @@ async function getOrder(orderId) {
     return response.data.data;
 }
 
-async function updateOrderStatus(orderId, status) {
+async function updateOrderStatus(orderId, status, driverId = null) {
+    const payload = { status };
+    if (driverId) {
+        payload.driverId = driverId;
+    }
+
     const response = await axios.patch(
         `${config.orderServiceUrl}/orders/${orderId}/status`,
-        {
-            status,
-        }
+        payload
+    );
+
+    return response.data.data;
+}
+
+async function getAllOrders() {
+    const response = await axios.get(
+        `${config.orderServiceUrl}/orders`
     );
 
     return response.data.data;
@@ -22,5 +33,6 @@ async function updateOrderStatus(orderId, status) {
 
 module.exports = {
     getOrder,
+    getAllOrders,
     updateOrderStatus,
 };

@@ -20,6 +20,7 @@ pool.on("error", (error) => {
 });
 
 // Automatically ensure orders table valid_status constraint permits both PICKUP and PICKED_UP
+// and ensure driver_id column exists
 (async () => {
     try {
         await pool.query(`
@@ -46,6 +47,8 @@ pool.on("error", (error) => {
                     );
                 END IF;
             END $$;
+
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS driver_id VARCHAR(100);
         `);
     } catch (e) {
         // Non-critical startup migration check

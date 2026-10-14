@@ -168,10 +168,42 @@ async function createOrder(data) {
     const createdOrder = await orderRepository.createOrder(order);
 
     // 6. Publish OrderCreated event to Kafka
-    await publishOrderCreated(createdOrder);
+    try {
+        await publishOrderCreated(createdOrder);
+    } catch (kafkaErr) {
+        console.warn("[OrderService] Kafka publish failed:", kafkaErr.message);
+    }
 
-    // 7. Return created order
+    // 7. Direct dispatch trigger (wakes up dispatch-service on Render & assigns immediately)
+    void triggerDispatch(createdOrder.order_id);
+
+    // 8. Return created order
     return createdOrder;
+}
+
+async function triggerDispatch(orderId) {
+    const dispatchUrl = process.env.DISPATCH_SERVICE_URL ||
+        (process.env.NODE_ENV === "production" || process.env.RENDER === "true"
+            ? "https://fluxo-dispatch-service.onrender.com"
+            : "http://localhost:3004");
+
+    try {
+        const url = `${dispatchUrl.replace(/\/+$/, "")}/dispatch/orders/${orderId}/dispatch`;
+        console.log(`🚀 [Dispatch Trigger] Calling dispatch service at: ${url}`);
+        const response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(10000),
+        });
+        if (response.ok) {
+            const data = await response.json();
+            console.log(`✅ [Dispatch Trigger] Order ${orderId} dispatched:`, data?.data?.status || "OK");
+        } else {
+            console.warn(`⚠️ [Dispatch Trigger] Dispatch service responded with HTTP ${response.status}`);
+        }
+    } catch (err) {
+        console.warn(`⚠️ [Dispatch Trigger] Direct dispatch trigger failed (Kafka will process):`, err.message);
+    }
 }
 
 async function getOrder(orderId) {
@@ -190,7 +222,7 @@ async function getAllOrders() {
     return orderRepository.findAll();
 }
 
-async function updateOrderStatus(orderId, newStatus) {
+async function updateOrderStatus(orderId, newStatus, driverId = null) {
     if (!Object.values(ORDER_STATUS).includes(newStatus)) {
         const error = new Error("Invalid order status");
         error.statusCode = 400;
@@ -212,7 +244,7 @@ async function updateOrderStatus(orderId, newStatus) {
         throw error;
     }
 
-    return orderRepository.updateStatus(orderId, newStatus);
+    return orderRepository.updateStatus(orderId, newStatus, driverId);
 }
 
 async function getLocationInstructions(locationId) {

@@ -16,6 +16,9 @@ const {
     startDriverConsumer,
 } = require("./events/driverConsumer");
 
+const {
+    startWaitingOrderPoller,
+} = require("./events/waitingOrderPoller");
 
 const PORT = process.env.PORT || 3004;
 
@@ -24,11 +27,23 @@ async function startServer() {
         await connectRedis();
         console.log("Redis connected");
 
-        await startOrderConsumer();
-        console.log("Kafka order consumer connected");
+        // Start Kafka consumers (with safe fallback if Kafka is offline)
+        try {
+            await startOrderConsumer();
+            console.log("Kafka order consumer connected");
+        } catch (kafkaOrderErr) {
+            console.warn("Kafka order consumer connection delayed:", kafkaOrderErr.message);
+        }
 
-        await startDriverConsumer();
-        console.log("Kafka driver recovery consumer connected");
+        try {
+            await startDriverConsumer();
+            console.log("Kafka driver recovery consumer connected");
+        } catch (kafkaDriverErr) {
+            console.warn("Kafka driver recovery consumer connection delayed:", kafkaDriverErr.message);
+        }
+
+        // Start waiting & unassigned order poller to ensure zero dropped orders
+        startWaitingOrderPoller();
 
 
         app.listen(PORT, () => {

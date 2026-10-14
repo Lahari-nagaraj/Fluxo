@@ -1,6 +1,7 @@
 
 const { redisClient } = require("../clients/redisClient");
 const { dispatchOrder } = require("../services/dispatchService");
+const orderClient = require("../clients/orderClient");
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -48,6 +49,30 @@ async function processWaitingOrders() {
                     );
                 }
             }
+        }
+
+        // Also query Order Service for any unassigned orders (CREATED or SEARCHING_DRIVER)
+        // to automatically self-heal and assign any orders that arrived while dispatch was offline
+        try {
+            const allOrders = await orderClient.getAllOrders();
+            const unassignedOrders = (allOrders || []).filter(
+                (o) => o.status === "CREATED" || o.status === "SEARCHING_DRIVER"
+            );
+
+            for (const unassigned of unassignedOrders) {
+                try {
+                    const result = await dispatchOrder(unassigned.order_id);
+                    if (result?.status === "ASSIGNED") {
+                        console.log(
+                            `🔄 [Poller Recovery] Automatically assigned stranded order ${unassigned.order_id} to driver ${result.driverId}`
+                        );
+                    }
+                } catch (orderDispatchErr) {
+                    // Will retry on next poll tick
+                }
+            }
+        } catch (fetchErr) {
+            // Non-critical if Order Service is briefly unreachable
         }
     } catch (error) {
         console.error(

@@ -10,25 +10,33 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(cors());
 
+const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+
 // Existing client-facing microservices
 const services = [
     {
         name: "Order Service",
         prefix: "/api/orders",
-        target: process.env.ORDER_SERVICE_URL,
+        target: process.env.ORDER_SERVICE_URL || (isProduction ? "https://fluxo-order-service.onrender.com" : "http://localhost:3001"),
         servicePrefix: "/orders",
     },
     {
         name: "Driver Service",
         prefix: "/api/drivers",
-        target: process.env.DRIVER_SERVICE_URL,
+        target: process.env.DRIVER_SERVICE_URL || (isProduction ? "https://fluxo-driver-service.onrender.com" : "http://localhost:3002"),
         servicePrefix: "/drivers",
     },
     {
         name: "Location Service",
         prefix: "/api/locations",
-        target: process.env.LOCATION_SERVICE_URL,
+        target: process.env.LOCATION_SERVICE_URL || (isProduction ? "https://fluxo-location-service.onrender.com" : "http://localhost:3003"),
         servicePrefix: "/locations",
+    },
+    {
+        name: "Dispatch Service",
+        prefix: "/api/dispatch",
+        target: process.env.DISPATCH_SERVICE_URL || (isProduction ? "https://fluxo-dispatch-service.onrender.com" : "http://localhost:3004"),
+        servicePrefix: "/dispatch",
     },
 ];
 

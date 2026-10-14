@@ -62,17 +62,18 @@ async function findAll() {
     return result.rows;
 }
 
-async function updateStatus(orderId, status) {
+async function updateStatus(orderId, status, driverId = null) {
     const query = `
         UPDATE orders
         SET
             status = $1,
+            driver_id = COALESCE($3, driver_id),
             updated_at = CURRENT_TIMESTAMP
         WHERE order_id = $2
         RETURNING *;
     `;
 
-    const result = await pool.query(query, [status, orderId]);
+    const result = await pool.query(query, [status, orderId, driverId]);
 
     return result.rows[0];
 }

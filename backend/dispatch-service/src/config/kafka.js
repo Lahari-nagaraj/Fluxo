@@ -21,7 +21,7 @@ const kafka = new Kafka({
           }
         : undefined,
 
-    logLevel: logLevel.ERROR,
+    logLevel: logLevel ? logLevel.ERROR : undefined,
 });
 
 const consumer = kafka.consumer({

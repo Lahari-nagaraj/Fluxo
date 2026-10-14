@@ -312,7 +312,8 @@ async function dispatchOrder(orderId) {
 
                 await orderClient.updateOrderStatus(
                     orderId,
-                    "ASSIGNED"
+                    "ASSIGNED",
+                    candidate.driverId
                 );
 
                 order.status = "ASSIGNED";

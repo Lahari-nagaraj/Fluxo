@@ -31,7 +31,7 @@ const kafka = new Kafka({
                   password: process.env.KAFKA_PASSWORD,
               }
             : undefined,
-    logLevel: logLevel.ERROR,
+    logLevel: logLevel ? logLevel.ERROR : undefined,
 });
 
 const consumer = kafka.consumer({

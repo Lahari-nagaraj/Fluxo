@@ -1,9 +1,10 @@
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   orderApi,
   driverApi,
   locationApi,
+  dispatchApi,
 } from "../services/api";
 
 export default function useDashboardData() {
@@ -12,24 +13,53 @@ export default function useDashboardData() {
   const [locations, setLocations] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const isInitialMount = useRef(true);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    if (isInitialMount.current) {
+      setLoading(true);
+    }
     setError("");
 
     const errors = [];
 
-    // Load orders independently so a driver API failure
-    // does not prevent orders from appearing.
+    // Load orders and active assignments in parallel
     try {
-      const response = await orderApi.getAll();
-      const data = response.data?.data;
+      const [orderRes, assignmentRes] = await Promise.allSettled([
+        orderApi.getAll(),
+        dispatchApi.getAssignments(),
+      ]);
 
-      if (!Array.isArray(data)) {
-        throw new Error("Unexpected response format from GET /orders");
+      let orderData = [];
+      if (orderRes.status === "fulfilled") {
+        orderData = orderRes.value.data?.data || [];
+      } else {
+        throw orderRes.reason;
       }
 
-      setOrders(data);
+      // Map active assignments to orders if order.driver_id is not already populated
+      let assignmentMap = {};
+      if (assignmentRes.status === "fulfilled" && Array.isArray(assignmentRes.value.data?.data)) {
+        for (const a of assignmentRes.value.data.data) {
+          if (a.orderId) {
+            assignmentMap[a.orderId] = a;
+          }
+        }
+      }
+
+      const mergedOrders = orderData.map((order) => {
+        const activeAssignment = assignmentMap[order.order_id];
+        if (activeAssignment && (!order.driver_id || order.driver_id === "")) {
+          return {
+            ...order,
+            driver_id: activeAssignment.driverId,
+            assigned_at: activeAssignment.assignedAt || order.updated_at,
+          };
+        }
+        return order;
+      });
+
+      setOrders(mergedOrders);
     } catch (err) {
       console.error("Orders API failed:", err);
       errors.push(
@@ -41,7 +71,7 @@ export default function useDashboardData() {
       );
     }
 
-    // Load drivers independently and identify their exact error.
+    // Load drivers independently
     try {
       const response = await driverApi.getAll();
       const data = response.data?.data;
@@ -52,8 +82,7 @@ export default function useDashboardData() {
 
       setDrivers(data);
 
-      // Location lookups are optional: one failed lookup should
-      // not break the dashboard.
+      // Location lookups are optional
       const results = await Promise.allSettled(
         data.map(async (driver) => {
           const response = await locationApi.getByDriverId(
@@ -98,10 +127,18 @@ export default function useDashboardData() {
     }
 
     setLoading(false);
+    isInitialMount.current = false;
   }, []);
 
   useEffect(() => {
     refresh();
+
+    // Auto-refresh every 4 seconds so orders progress dynamically across states
+    const timer = setInterval(() => {
+      refresh();
+    }, 4000);
+
+    return () => clearInterval(timer);
   }, [refresh]);
 
   const applyLocationUpdate = useCallback((update) => {
