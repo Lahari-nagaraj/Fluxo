@@ -1,5 +1,10 @@
+
 import { useCallback, useEffect, useState } from "react";
-import { orderApi, driverApi, locationApi } from "../services/api";
+import {
+  orderApi,
+  driverApi,
+  locationApi,
+} from "../services/api";
 
 export default function useDashboardData() {
   const [orders, setOrders] = useState([]);
@@ -9,57 +14,90 @@ export default function useDashboardData() {
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     setError("");
 
+    const errors = [];
+
+    // Load orders independently so a driver API failure
+    // does not prevent orders from appearing.
     try {
-      const [ordersResult, driversResult] = await Promise.all([
-        orderApi.getAll(),
-        driverApi.getAll(),
-      ]);
+      const response = await orderApi.getAll();
+      const data = response.data?.data;
 
-      const orderData = ordersResult.data.data;
-      const driverData = driversResult.data.data;
-
-      if (!Array.isArray(orderData) || !Array.isArray(driverData)) {
-        throw new Error("Unexpected API response format");
+      if (!Array.isArray(data)) {
+        throw new Error("Unexpected response format from GET /orders");
       }
 
-      setOrders(orderData);
-      setDrivers(driverData);
+      setOrders(data);
+    } catch (err) {
+      console.error("Orders API failed:", err);
+      errors.push(
+        `Orders API: ${
+          err.response?.status
+            ? `HTTP ${err.response.status}`
+            : err.message
+        }`
+      );
+    }
 
-      const locationResults = await Promise.allSettled(
-        driverData.map(async (driver) => {
+    // Load drivers independently and identify their exact error.
+    try {
+      const response = await driverApi.getAll();
+      const data = response.data?.data;
+
+      if (!Array.isArray(data)) {
+        throw new Error("Unexpected response format from GET /drivers");
+      }
+
+      setDrivers(data);
+
+      // Location lookups are optional: one failed lookup should
+      // not break the dashboard.
+      const results = await Promise.allSettled(
+        data.map(async (driver) => {
           const response = await locationApi.getByDriverId(
             driver.driver_id
           );
 
           return {
             driverId: driver.driver_id,
-            location: response.data.data,
+            location: response.data?.data,
           };
         })
       );
 
       const nextLocations = {};
 
-      for (const result of locationResults) {
+      results.forEach((result, index) => {
         if (result.status === "fulfilled" && result.value.location) {
           nextLocations[result.value.driverId] = result.value.location;
+        } else if (result.status === "rejected") {
+          console.warn(
+            `Location lookup failed for driver ${data[index].driver_id}:`,
+            result.reason?.response?.status || result.reason?.message
+          );
         }
-      }
+      });
 
       setLocations(nextLocations);
     } catch (err) {
-      console.error("Dashboard data loading failed:", err);
+      console.error("Drivers API failed:", err);
 
-      setError(
-        err.response?.data?.message ||
-          err.message ||
-          "Unable to load dashboard data"
+      errors.push(
+        `Drivers API: ${
+          err.response?.status
+            ? `HTTP ${err.response.status}`
+            : err.message
+        }`
       );
-    } finally {
-      setLoading(false);
     }
+
+    if (errors.length > 0) {
+      setError(errors.join(" | "));
+    }
+
+    setLoading(false);
   }, []);
 
   useEffect(() => {
