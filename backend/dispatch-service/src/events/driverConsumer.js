@@ -1,4 +1,7 @@
-const { Kafka } = require("kafkajs");
+
+require("dotenv").config();
+
+const { Kafka, logLevel } = require("kafkajs");
 
 const {
     dispatchOrder,
@@ -16,9 +19,19 @@ const RECOVERY_INTERVAL_MS = 10_000;
 const kafka = new Kafka({
     clientId: "dispatch-driver-consumer",
     brokers: [
-        process.env.KAFKA_BROKER ||
-        "localhost:9092",
+        process.env.KAFKA_BROKER || "localhost:9092",
     ],
+    ssl: true,
+    sasl:
+        process.env.KAFKA_USERNAME &&
+        process.env.KAFKA_PASSWORD
+            ? {
+                  mechanism: "plain",
+                  username: process.env.KAFKA_USERNAME,
+                  password: process.env.KAFKA_PASSWORD,
+              }
+            : undefined,
+    logLevel: logLevel.ERROR,
 });
 
 const consumer = kafka.consumer({
@@ -37,8 +50,12 @@ async function recoverWaitingOrders(zoneId) {
 
     try {
         const allZones = await getWaitingZones();
+
         const zones = zoneId
-            ? [zoneId, ...allZones.filter((z) => z !== zoneId)]
+            ? [
+                  zoneId,
+                  ...allZones.filter((z) => z !== zoneId),
+              ]
             : allZones;
 
         for (const waitingZoneId of zones) {
@@ -70,8 +87,7 @@ async function recoverWaitingOrders(zoneId) {
                             `🔄 Recovery processed order ${orderId}: ${result.status}`
                         );
                     } else if (
-                        result?.status ===
-                        "WAITING_FOR_DRIVER"
+                        result?.status === "WAITING_FOR_DRIVER"
                     ) {
                         console.log(
                             `⏳ Order ${orderId} remains waiting: ${result.reason}`
@@ -97,6 +113,7 @@ async function recoverForAvailableDriver(event) {
         const location = await redisClient.hGetAll(
             `driver:location:${event.driverId}`
         );
+
         const driverState = await redisClient.hGetAll(
             `driver:${event.driverId}`
         );
@@ -133,6 +150,10 @@ async function startDriverConsumer() {
 
     await consumer.run({
         eachMessage: async ({ message }) => {
+            if (!message.value) {
+                return;
+            }
+
             let event;
 
             try {
@@ -168,6 +189,7 @@ async function startDriverConsumer() {
                 );
             });
         }, RECOVERY_INTERVAL_MS);
+
         recoveryTimer.unref?.();
     }
 
