@@ -23,8 +23,11 @@ import { orderApi } from "./services/api";
 
 import "./App.css";
 
-const LOCATION_SOCKET_URL =
-  import.meta.env.VITE_LOCATION_SOCKET_URL || "http://localhost:3003";
+// Use the deployed Location Service in production.
+// Use the local Location Service during local development.
+const LOCATION_SOCKET_URL = import.meta.env.PROD
+  ? "https://fluxo-location-service.onrender.com"
+  : import.meta.env.VITE_LOCATION_SOCKET_URL || "http://localhost:3003";
 
 const IS_PRODUCTION = import.meta.env.PROD;
 
@@ -44,6 +47,7 @@ export default function App() {
     applyLocationUpdate,
   } = useDashboardData();
 
+  // Connect to the Location Service using Socket.IO.
   useEffect(() => {
     const socket = io(LOCATION_SOCKET_URL, {
       transports: ["websocket", "polling"],
@@ -65,6 +69,7 @@ export default function App() {
 
     return () => {
       socket.off("driver_location_updated", applyLocationUpdate);
+
       socket.disconnect();
     };
   }, [applyLocationUpdate]);
@@ -145,6 +150,7 @@ export default function App() {
           {error && (
             <div className="dashboard-error">
               {error}
+
               <button className="text-button" onClick={refresh}>
                 Retry
               </button>
@@ -264,6 +270,7 @@ export default function App() {
                   }}
                 >
                   <Plus size={16} />
+
                   {showCreateOrder ? "Close form" : "Create order"}
                 </button>
               </div>
@@ -271,6 +278,7 @@ export default function App() {
               {createSuccess && (
                 <div className="create-success" role="status">
                   <CheckCircle2 size={18} />
+
                   <span>{createSuccess}</span>
 
                   <button className="text-button" onClick={refresh}>
@@ -335,12 +343,13 @@ export default function App() {
 
           <footer className="page-footer">
             <span>FLUXO DELIVERY ORCHESTRATION PLATFORM</span>
+
             <span>Distributed logistics · Real-time location events</span>
           </footer>
         </div>
       </main>
 
-      {/* Keep DriverPortal mounted when switching dashboard pages. */}
+      {/* Keep DriverPortal mounted when switching pages. */}
       <div
         style={{
           display: activePage === "Driver Portal" ? "block" : "none",
