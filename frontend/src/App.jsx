@@ -1,5 +1,4 @@
-
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
 
 import {
@@ -9,7 +8,6 @@ import {
   Activity,
   Plus,
   CheckCircle2,
-  Bell,
 } from "lucide-react";
 
 import Sidebar from "./components/Sidebar";
@@ -25,17 +23,16 @@ import { orderApi } from "./services/api";
 
 import "./App.css";
 
-const LOCATION_SOCKET_URL = "http://localhost:3003";
+const LOCATION_SOCKET_URL =
+  import.meta.env.VITE_LOCATION_SOCKET_URL || "http://localhost:3003";
+
+const IS_PRODUCTION = import.meta.env.PROD;
 
 export default function App() {
   const [activePage, setActivePage] = useState("Overview");
   const [showCreateOrder, setShowCreateOrder] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [createSuccess, setCreateSuccess] = useState("");
-
-  // Assignment alert pop-up state
-  const [assignmentAlert, setAssignmentAlert] = useState(null);
-  const seenAssignmentsRef = useRef(new Set());
 
   const {
     orders,
@@ -48,15 +45,22 @@ export default function App() {
   } = useDashboardData();
 
   useEffect(() => {
-    const socket = io(LOCATION_SOCKET_URL);
+    const socket = io(LOCATION_SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+    });
+
+    socket.on("connect", () => {
+      console.log("✅ Location Socket.IO connected:", socket.id);
+    });
 
     socket.on("driver_location_updated", applyLocationUpdate);
 
     socket.on("connect_error", (err) => {
-      console.error(
-        "Location Socket.IO connection failed:",
-        err.message
-      );
+      console.error("Location Socket.IO connection failed:", err.message);
     });
 
     return () => {
@@ -66,44 +70,12 @@ export default function App() {
   }, [applyLocationUpdate]);
 
   const availableDrivers = drivers.filter(
-    (driver) => driver.status === "AVAILABLE"
+    (driver) => driver.status === "AVAILABLE",
   ).length;
 
   const activeDeliveries = orders.filter((order) =>
-    ["ASSIGNED", "PICKUP", "PICKED_UP", "IN_TRANSIT"].includes(order.status)
+    ["ASSIGNED", "PICKED_UP", "IN_TRANSIT"].includes(order.status),
   ).length;
-
-  // Show notification or alert ONCE when order with location and door notes is in PICKUP
-  useEffect(() => {
-    for (const order of orders) {
-      if (
-        order.driver_id &&
-        order.delivery_instructions &&
-        (order.status === "PICKUP" || order.status === "PICKED_UP")
-      ) {
-        const key = `fluxo_door_alert_shown_${order.order_id}`;
-        if (!sessionStorage.getItem(key)) {
-          sessionStorage.setItem(key, "true");
-          setAssignmentAlert({
-            orderId: order.order_id,
-            driverId: order.driver_id,
-            locationId: order.location_id,
-            instructions: order.delivery_instructions,
-          });
-
-          // Trigger browser alert popup once when driver state is in pickup
-          setTimeout(() => {
-            window.alert(
-              `🔔 REACH-THE-DOOR REMINDER ALERT!\n\n` +
-              `Driver ${order.driver_id} is in PICKUP for location: ${order.location_id || "Saved Destination"}\n\n` +
-              `Stored Reach-The-Door Directions:\n"${order.delivery_instructions}"\n\n` +
-              `Order ID: ${order.order_id}`
-            );
-          }, 250);
-        }
-      }
-    }
-  }, [orders]);
 
   const sharedTableProps = {
     orders,
@@ -123,7 +95,7 @@ export default function App() {
       setShowCreateOrder(false);
 
       setCreateSuccess(
-        `Order ${createdOrder?.order_id || ""} created successfully.`
+        `Order ${createdOrder?.order_id || ""} created successfully.`,
       );
 
       await refresh();
@@ -142,10 +114,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar
-        activePage={activePage}
-        onNavigate={setActivePage}
-      />
+      <Sidebar activePage={activePage} onNavigate={setActivePage} />
 
       <main className="main-content">
         <Topbar activePage={activePage} />
@@ -159,9 +128,7 @@ export default function App() {
               </div>
 
               <h1>
-                {activePage === "Overview"
-                  ? "Operations overview"
-                  : activePage}
+                {activePage === "Overview" ? "Operations overview" : activePage}
               </h1>
 
               <p className="page-subtitle">
@@ -171,17 +138,14 @@ export default function App() {
 
             <div className="environment-badge">
               <span className="status-dot" />
-              Local development
+              {IS_PRODUCTION ? "Production" : "Local development"}
             </div>
           </section>
 
           {error && (
             <div className="dashboard-error">
               {error}
-              <button
-                className="text-button"
-                onClick={refresh}
-              >
+              <button className="text-button" onClick={refresh}>
                 Retry
               </button>
             </div>
@@ -209,7 +173,7 @@ export default function App() {
                 <StatCard
                   title="Active deliveries"
                   value={loading ? "…" : activeDeliveries}
-                  description="Assigned, pickup, or in transit"
+                  description="Assigned, picked up, or in transit"
                   icon={MapPinned}
                   accent="blue"
                 />
@@ -217,11 +181,7 @@ export default function App() {
                 <StatCard
                   title="API status"
                   value={
-                    loading
-                      ? "Checking…"
-                      : error
-                        ? "API issue"
-                        : "Connected"
+                    loading ? "Checking…" : error ? "API issue" : "Connected"
                   }
                   description="Orders and Drivers API requests"
                   icon={Activity}
@@ -243,10 +203,7 @@ export default function App() {
                       <p>Current backend data</p>
                     </div>
 
-                    <Activity
-                      size={19}
-                      className="muted-icon"
-                    />
+                    <Activity size={19} className="muted-icon" />
                   </div>
 
                   <div className="network-summary">
@@ -257,9 +214,7 @@ export default function App() {
 
                     <div className="summary-row">
                       <span>Drivers with locations</span>
-                      <strong>
-                        {Object.keys(locations).length}
-                      </strong>
+                      <strong>{Object.keys(locations).length}</strong>
                     </div>
 
                     <div className="summary-row">
@@ -267,8 +222,7 @@ export default function App() {
                       <strong>
                         {
                           orders.filter(
-                            (order) =>
-                              order.status === "SEARCHING_DRIVER"
+                            (order) => order.status === "SEARCHING_DRIVER",
                           ).length
                         }
                       </strong>
@@ -278,9 +232,8 @@ export default function App() {
                       <span>Assigned orders</span>
                       <strong>
                         {
-                          orders.filter(
-                            (order) => order.status === "ASSIGNED"
-                          ).length
+                          orders.filter((order) => order.status === "ASSIGNED")
+                            .length
                         }
                       </strong>
                     </div>
@@ -311,26 +264,16 @@ export default function App() {
                   }}
                 >
                   <Plus size={16} />
-
-                  {showCreateOrder
-                    ? "Close form"
-                    : "Create order"}
+                  {showCreateOrder ? "Close form" : "Create order"}
                 </button>
               </div>
 
               {createSuccess && (
-                <div
-                  className="create-success"
-                  role="status"
-                >
+                <div className="create-success" role="status">
                   <CheckCircle2 size={18} />
-
                   <span>{createSuccess}</span>
 
-                  <button
-                    className="text-button"
-                    onClick={refresh}
-                  >
+                  <button className="text-button" onClick={refresh}>
                     Refresh status
                   </button>
                 </div>
@@ -358,11 +301,7 @@ export default function App() {
           )}
 
           {activePage === "Live Tracking" && (
-            <LiveMap
-              drivers={drivers}
-              locations={locations}
-              orders={orders}
-            />
+            <LiveMap drivers={drivers} locations={locations} orders={orders} />
           )}
 
           {activePage === "System" && (
@@ -388,64 +327,27 @@ export default function App() {
                 <strong>{Object.keys(locations).length}</strong>
               </div>
 
-              <button
-                className="refresh-button"
-                onClick={refresh}
-              >
+              <button className="refresh-button" onClick={refresh}>
                 Refresh backend data
               </button>
             </section>
           )}
 
-          {/* Keep DriverPortal mounted when switching dashboard pages.
-              This prevents its cleanup effect from stopping location sharing
-              just because another page is selected. */}
-          <div
-            className="driver-portal-page-container"
-            style={{
-              display:
-                activePage === "Driver Portal" ? "block" : "none",
-            }}
-          >
-            <DriverPortal orders={orders} onRefreshOrders={refresh} />
-          </div>
-
           <footer className="page-footer">
-            <span>
-              FLUXO DELIVERY ORCHESTRATION PLATFORM
-            </span>
-
-            <span>
-              Distributed logistics · Real-time location events
-            </span>
+            <span>FLUXO DELIVERY ORCHESTRATION PLATFORM</span>
+            <span>Distributed logistics · Real-time location events</span>
           </footer>
         </div>
       </main>
 
-      {/* Floating Reach-the-Door Assignment Reminder Toast */}
-      {assignmentAlert && (
-        <aside className="assignment-alert-toast" role="alert">
-          <div className="alert-toast-header">
-            <span className="bell-toast-icon">🔔</span>
-            <strong>Driver Assigned with Door Instructions!</strong>
-            <button
-              type="button"
-              className="toast-close-btn"
-              onClick={() => setAssignmentAlert(null)}
-              aria-label="Dismiss alert"
-            >
-              ✕
-            </button>
-          </div>
-          <p className="alert-toast-body">
-            "{assignmentAlert.instructions}"
-          </p>
-          <div className="alert-toast-meta">
-            <span>Location: <code>{assignmentAlert.locationId || "N/A"}</code></span>
-            <span>Driver: <code>{assignmentAlert.driverId?.slice(0, 8)}</code></span>
-          </div>
-        </aside>
-      )}
+      {/* Keep DriverPortal mounted when switching dashboard pages. */}
+      <div
+        style={{
+          display: activePage === "Driver Portal" ? "block" : "none",
+        }}
+      >
+        <DriverPortal />
+      </div>
     </div>
   );
 }
